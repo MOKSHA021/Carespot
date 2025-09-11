@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import HospitalReviewModal from '../components/admin/HospitalReviewModal';
 
 const AdminDashboard = () => {
   const { user } = useAuth();
@@ -9,6 +10,11 @@ const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const [showCreateAdminForm, setShowCreateAdminForm] = useState(false);
+  
+  // Hospital Review Modal State
+  const [selectedHospital, setSelectedHospital] = useState(null);
+  const [showHospitalModal, setShowHospitalModal] = useState(false);
+
   const [adminFormData, setAdminFormData] = useState({
     name: '',
     email: '',
@@ -22,7 +28,6 @@ const AdminDashboard = () => {
   const [adminFormErrors, setAdminFormErrors] = useState({});
   const [adminFormLoading, setAdminFormLoading] = useState(false);
 
-  // ✅ FIXED: API Base URL Configuration
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
   useEffect(() => {
@@ -32,24 +37,17 @@ const AdminDashboard = () => {
     }
   }, [user]);
 
-  // ✅ FIXED: Updated with correct API URL
   const fetchDashboardData = async () => {
     try {
       const token = localStorage.getItem('token');
       
-      // Fetch dashboard stats
       const statsResponse = await fetch(`${API_BASE_URL}/admin/dashboard`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       const statsData = await statsResponse.json();
       
-      // Fetch pending hospitals
       const hospitalsResponse = await fetch(`${API_BASE_URL}/admin/hospitals/pending`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       const hospitalsData = await hospitalsResponse.json();
       
@@ -62,14 +60,11 @@ const AdminDashboard = () => {
     }
   };
 
-  // ✅ FIXED: Updated with correct API URL
   const fetchMyAdmins = async () => {
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/admin/my-admins?page=1&limit=20`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (response.ok) {
@@ -81,8 +76,21 @@ const AdminDashboard = () => {
     }
   };
 
-  // ✅ FIXED: Updated with correct API URL
-  const handleHospitalVerification = async (hospitalId, status, notes = '') => {
+  // Hospital Review Modal Functions
+  const handleHospitalClick = (hospital) => {
+    setSelectedHospital(hospital);
+    setShowHospitalModal(true);
+  };
+
+  const handleHospitalUpdate = (updatedHospital) => {
+    setPendingHospitals(prev => 
+      prev.map(h => h._id === updatedHospital._id ? updatedHospital : h)
+        .filter(h => h.verificationStatus === 'pending')
+    );
+    fetchDashboardData(); // Refresh stats
+  };
+
+  const handleQuickAction = async (hospitalId, action) => {
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/admin/hospitals/${hospitalId}/verify`, {
@@ -92,28 +100,27 @@ const AdminDashboard = () => {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          status,
-          verificationNotes: notes
+          status: action,
+          verificationNotes: `Quick ${action} by admin`,
+          isPartnered: action === 'approved'
         })
       });
 
       if (response.ok) {
         fetchDashboardData();
+        alert(`Hospital ${action} successfully!`);
       }
     } catch (error) {
-      console.error('Error verifying hospital:', error);
+      console.error('Quick action error:', error);
     }
   };
 
-  // ✅ FIXED: Updated with correct API URL
   const generateCredentials = async () => {
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/admin/generate-credentials`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (response.ok) {
@@ -125,12 +132,10 @@ const AdminDashboard = () => {
           confirmPassword: data.credentials.password
         }));
         
-        // Show success message
         alert(`🎉 Credentials Generated!\n\n📧 Email: ${data.credentials.email}\n🔐 Password: ${data.credentials.password}\n\n💡 Credentials have been auto-filled in the form.`);
       }
     } catch (error) {
       console.error('Error generating credentials:', error);
-      // Fallback credential generation
       const fallbackEmail = `admin${Date.now()}@carespot.com`;
       const fallbackPassword = generateRandomPassword();
       
@@ -145,7 +150,6 @@ const AdminDashboard = () => {
     }
   };
 
-  // Helper function for offline credential generation
   const generateRandomPassword = (length = 12) => {
     const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
     let password = '';
@@ -189,7 +193,6 @@ const AdminDashboard = () => {
     return Object.keys(errors).length === 0;
   };
 
-  // ✅ FIXED: Updated with correct API URL and enhanced error handling
   const handleCreateAdmin = async (e) => {
     e.preventDefault();
     
@@ -199,8 +202,6 @@ const AdminDashboard = () => {
 
     try {
       const token = localStorage.getItem('token');
-      console.log('🔍 Creating admin with URL:', `${API_BASE_URL}/admin/create-admin`);
-      
       const response = await fetch(`${API_BASE_URL}/admin/create-admin`, {
         method: 'POST',
         headers: {
@@ -211,7 +212,6 @@ const AdminDashboard = () => {
       });
 
       const data = await response.json();
-      console.log('📡 Response:', response.status, data);
 
       if (response.ok) {
         alert(`✅ Admin Created Successfully!\n\n👤 Name: ${data.admin.name}\n📧 Email: ${data.admin.email}\n🔑 Password: ${data.admin.tempPassword || adminFormData.password}\n📱 Phone: ${data.admin.phone}\n🛡️ Level: ${data.admin.adminLevel}\n\n⚠️ Please share these credentials securely with the new admin.\n💡 Advise them to change the password on first login.`);
@@ -232,14 +232,13 @@ const AdminDashboard = () => {
         setAdminFormErrors({ submit: data.message || 'Error creating admin user' });
       }
     } catch (error) {
-      console.error('❌ Error creating admin:', error);
+      console.error('Error creating admin:', error);
       setAdminFormErrors({ submit: 'Network error: Unable to create admin user. Please check if the backend server is running.' });
     } finally {
       setAdminFormLoading(false);
     }
   };
 
-  // ✅ FIXED: Updated with correct API URL
   const toggleAdminStatus = async (adminId, currentStatus) => {
     try {
       const token = localStorage.getItem('token');
@@ -264,7 +263,6 @@ const AdminDashboard = () => {
     }
   };
 
-  // ✅ FIXED: Updated with correct API URL
   const deleteAdmin = async (adminId, adminName) => {
     if (window.confirm(`⚠️ Are you sure you want to delete admin "${adminName}"?\n\nThis action cannot be undone and will permanently remove:\n• Admin access\n• All associated data\n• Login credentials\n\nType "DELETE" in the next prompt to confirm.`)) {
       const confirmation = window.prompt('Type "DELETE" to confirm:');
@@ -273,9 +271,7 @@ const AdminDashboard = () => {
           const token = localStorage.getItem('token');
           const response = await fetch(`${API_BASE_URL}/admin/admins/${adminId}`, {
             method: 'DELETE',
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
+            headers: { 'Authorization': `Bearer ${token}` }
           });
 
           if (response.ok) {
@@ -400,7 +396,14 @@ const AdminDashboard = () => {
       borderRadius: '12px',
       padding: '1.5rem',
       marginBottom: '1rem',
-      backgroundColor: '#f8fafc'
+      backgroundColor: '#f8fafc',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease'
+    },
+    hospitalCardHover: {
+      transform: 'translateY(-2px)',
+      boxShadow: '0 8px 25px rgba(0, 0, 0, 0.1)',
+      borderColor: '#3b82f6'
     },
     hospitalName: {
       fontSize: '1.25rem',
@@ -415,29 +418,29 @@ const AdminDashboard = () => {
     },
     buttonGroup: {
       display: 'flex',
-      gap: '1rem'
+      gap: '0.5rem',
+      marginTop: '1rem'
     },
-    approveButton: {
+    quickActionBtn: {
+      padding: '0.375rem 0.75rem',
+      borderRadius: '6px',
+      fontSize: '0.75rem',
+      fontWeight: '600',
+      border: 'none',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease'
+    },
+    approveBtn: {
       backgroundColor: '#10b981',
-      color: '#ffffff',
-      border: 'none',
-      padding: '0.5rem 1rem',
-      borderRadius: '8px',
-      fontSize: '0.875rem',
-      fontWeight: '600',
-      cursor: 'pointer',
-      transition: 'all 0.2s ease'
+      color: '#ffffff'
     },
-    rejectButton: {
+    rejectBtn: {
       backgroundColor: '#ef4444',
-      color: '#ffffff',
-      border: 'none',
-      padding: '0.5rem 1rem',
-      borderRadius: '8px',
-      fontSize: '0.875rem',
-      fontWeight: '600',
-      cursor: 'pointer',
-      transition: 'all 0.2s ease'
+      color: '#ffffff'
+    },
+    viewBtn: {
+      backgroundColor: '#3b82f6',
+      color: '#ffffff'
     },
     createButton: {
       background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
@@ -593,7 +596,7 @@ const AdminDashboard = () => {
       alignItems: 'flex-start',
       marginBottom: '1rem'
     },
-    adminName: {
+    adminNameText: {
       fontSize: '1.25rem',
       fontWeight: '600',
       color: '#1e293b'
@@ -695,7 +698,7 @@ const AdminDashboard = () => {
             }}
             onClick={() => setActiveTab('hospitals')}
           >
-            🏥 Hospital Verification
+            🏥 Hospital Review
           </button>
           <button
             style={{
@@ -719,6 +722,7 @@ const AdminDashboard = () => {
           )}
         </div>
 
+        {/* Overview Tab */}
         {activeTab === 'overview' && dashboardStats && (
           <>
             <div style={styles.statsGrid}>
@@ -758,7 +762,19 @@ const AdminDashboard = () => {
               <div style={styles.hospitalsSection}>
                 <h2 style={styles.sectionTitle}>📋 Recent Hospital Applications</h2>
                 {dashboardStats.recentApplications.map((hospital) => (
-                  <div key={hospital._id} style={styles.hospitalCard}>
+                  <div 
+                    key={hospital._id} 
+                    style={styles.hospitalCard}
+                    onClick={() => handleHospitalClick(hospital)}
+                    onMouseEnter={(e) => {
+                      Object.assign(e.currentTarget.style, styles.hospitalCardHover);
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+                      e.currentTarget.style.borderColor = '#e2e8f0';
+                    }}
+                  >
                     <div style={styles.hospitalName}>🏥 {hospital.hospitalName}</div>
                     <div style={styles.hospitalInfo}>
                       📍 {hospital.location?.city} • 📅 Applied {new Date(hospital.createdAt).toLocaleDateString()}
@@ -770,14 +786,15 @@ const AdminDashboard = () => {
           </>
         )}
 
+        {/* Hospitals Tab with Enhanced Review */}
         {activeTab === 'hospitals' && (
           <div style={styles.hospitalsSection}>
-            <h2 style={styles.sectionTitle}>🏥 Pending Hospital Verifications</h2>
+            <h2 style={styles.sectionTitle}>🏥 Hospital Applications Review</h2>
             {pendingHospitals.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#64748b', padding: '3rem' }}>
-                <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🏥</div>
-                <h3>No Pending Hospital Applications</h3>
-                <p>All hospitals have been reviewed and processed.</p>
+                <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎉</div>
+                <h3>No Pending Applications</h3>
+                <p>All hospital applications have been reviewed!</p>
               </div>
             ) : (
               pendingHospitals.map((hospital) => (
@@ -787,40 +804,28 @@ const AdminDashboard = () => {
                     📍 {hospital.location?.address}, {hospital.location?.city}<br />
                     📞 {hospital.contactInfo?.phone} • ✉️ {hospital.contactInfo?.email}<br />
                     📋 Registration: {hospital.registrationNumber}<br />
+                    🏥 Type: {hospital.hospitalType}<br />
                     📅 Applied: {new Date(hospital.createdAt).toLocaleDateString()}
                   </div>
+                  
                   <div style={styles.buttonGroup}>
                     <button
-                      style={styles.approveButton}
-                      onClick={() => handleHospitalVerification(hospital._id, 'approved')}
-                      onMouseEnter={(e) => {
-                        e.target.style.backgroundColor = '#059669';
-                        e.target.style.transform = 'translateY(-2px)';
-                        e.target.style.boxShadow = '0 8px 20px rgba(16, 185, 129, 0.3)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.backgroundColor = '#10b981';
-                        e.target.style.transform = 'translateY(0)';
-                        e.target.style.boxShadow = 'none';
-                      }}
+                      style={{ ...styles.quickActionBtn, ...styles.viewBtn }}
+                      onClick={() => handleHospitalClick(hospital)}
                     >
-                      ✅ Approve
+                      🔍 Review Details
                     </button>
                     <button
-                      style={styles.rejectButton}
-                      onClick={() => handleHospitalVerification(hospital._id, 'rejected', 'Requires additional documentation')}
-                      onMouseEnter={(e) => {
-                        e.target.style.backgroundColor = '#dc2626';
-                        e.target.style.transform = 'translateY(-2px)';
-                        e.target.style.boxShadow = '0 8px 20px rgba(239, 68, 68, 0.3)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.backgroundColor = '#ef4444';
-                        e.target.style.transform = 'translateY(0)';
-                        e.target.style.boxShadow = 'none';
-                      }}
+                      style={{ ...styles.quickActionBtn, ...styles.approveBtn }}
+                      onClick={() => handleQuickAction(hospital._id, 'approved')}
                     >
-                      ❌ Reject
+                      ✅ Quick Approve
+                    </button>
+                    <button
+                      style={{ ...styles.quickActionBtn, ...styles.rejectBtn }}
+                      onClick={() => handleQuickAction(hospital._id, 'rejected')}
+                    >
+                      ❌ Quick Reject
                     </button>
                   </div>
                 </div>
@@ -829,6 +834,7 @@ const AdminDashboard = () => {
           </div>
         )}
 
+        {/* Users Tab */}
         {activeTab === 'users' && (
           <div style={styles.hospitalsSection}>
             <h2 style={styles.sectionTitle}>👥 User Management</h2>
@@ -840,6 +846,7 @@ const AdminDashboard = () => {
           </div>
         )}
 
+        {/* Admin Management Tab */}
         {activeTab === 'admin-management' && user?.adminLevel === 'super_admin' && (
           <div style={styles.hospitalsSection}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
@@ -881,7 +888,7 @@ const AdminDashboard = () => {
                 <div key={admin._id} style={styles.adminCard}>
                   <div style={styles.adminHeader}>
                     <div>
-                      <div style={styles.adminName}>👤 {admin.name}</div>
+                      <div style={styles.adminNameText}>👤 {admin.name}</div>
                       <div style={styles.adminEmail}>📧 {admin.email}</div>
                       <div style={styles.adminEmail}>📱 {admin.phone}</div>
                       <div style={styles.adminEmail}>🛡️ {admin.adminLevel?.replace('_', ' ')}</div>
@@ -939,7 +946,18 @@ const AdminDashboard = () => {
         )}
       </div>
 
-      {/* ✅ Enhanced Create Admin Modal */}
+      {/* Hospital Review Modal */}
+      <HospitalReviewModal
+        hospital={selectedHospital}
+        isOpen={showHospitalModal}
+        onClose={() => {
+          setShowHospitalModal(false);
+          setSelectedHospital(null);
+        }}
+        onUpdate={handleHospitalUpdate}
+      />
+
+      {/* Create Admin Modal */}
       {showCreateAdminForm && (
         <div style={styles.modal}>
           <div style={styles.modalContent}>

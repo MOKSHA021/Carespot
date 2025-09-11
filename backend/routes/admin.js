@@ -1,10 +1,11 @@
 const express = require('express');
 const {
-  registerAdmin,
   loginAdmin,
   getDashboardStats,
   getPendingHospitals,
   verifyHospital,
+  createHospitalManager,
+  getHospitalDetailsForReview,
   getAllUsers,
   toggleUserStatus,
   createAdminUser,
@@ -29,17 +30,19 @@ router.get('/dashboard', getDashboardStats);
 
 // Hospital management
 router.get('/hospitals/pending', getPendingHospitals);
+router.get('/hospitals/:id/details', getHospitalDetailsForReview);
 router.put('/hospitals/:id/verify', verifyHospital);
+router.post('/create-hospital-manager', createHospitalManager);
 
 // User management
 router.get('/users', getAllUsers);
 router.put('/users/:id/toggle-status', toggleUserStatus);
 
-// Admin management (Super Admin only) - ADD THESE ROUTES
-router.post('/create-admin', createAdminUser);
-router.get('/my-admins', getMyAdmins);
-router.put('/admins/:id/status', updateAdminStatus);
-router.delete('/admins/:id', deleteAdminUser);
-router.post('/generate-credentials', generateAdminCredentials);
+// Admin management (Super Admin only)
+router.post('/create-admin', authorize('super_admin'), createAdminUser);
+router.get('/my-admins', authorize('super_admin'), getMyAdmins);
+router.put('/admins/:id/status', authorize('super_admin'), updateAdminStatus);
+router.delete('/admins/:id', authorize('super_admin'), deleteAdminUser);
+router.post('/generate-credentials', authorize('super_admin'), generateAdminCredentials);
 
 module.exports = router;

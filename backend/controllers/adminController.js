@@ -1,62 +1,7 @@
 const User = require('../models/User');
 const Hospital = require('../models/Hospital');
 const generateToken = require('../utils/generateToken');
-
-// @desc    Register admin (restricted)
-// @route   POST /api/admin/register
-// @access  Super Admin only
-const registerAdmin = async (req, res) => {
-  try {
-    const { name, email, password, phone, adminLevel, permissions } = req.body;
-
-    // Check if user exists
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ message: 'Admin already exists with this email' });
-    }
-
-    // Check if phone exists
-    const phoneExists = await User.findOne({ phone });
-    if (phoneExists) {
-      return res.status(400).json({ message: 'Phone number already registered' });
-    }
-
-    // Create admin
-    const admin = await User.create({
-      name,
-      email,
-      password,
-      phone,
-      role: 'admin',
-      adminLevel: adminLevel || 'admin',
-      permissions: permissions || ['verify_hospitals', 'manage_users', 'view_analytics'],
-      createdBy: req.user._id
-    });
-
-    const token = generateToken(admin._id);
-    
-    res.status(201).json({
-      success: true,
-      message: 'Admin registration successful',
-      admin: {
-        _id: admin._id,
-        name: admin.name,
-        email: admin.email,
-        phone: admin.phone,
-        role: admin.role,
-        adminLevel: admin.adminLevel,
-        permissions: admin.permissions
-      },
-      token
-    });
-  } catch (error) {
-    console.error('Admin registration error:', error);
-    res.status(500).json({ 
-      message: 'Server error during admin registration',
-      error: error.message 
-    });
-  }
-};
+const { sendEmail } = require('../utils/emailService');
 
 // @desc    Admin login
 // @route   POST /api/admin/login
@@ -69,7 +14,6 @@ const loginAdmin = async (req, res) => {
       return res.status(400).json({ message: 'Please provide email and password' });
     }
 
-    // Check for admin user
     const admin = await User.findOne({ 
       email, 
       role: 'admin' 
@@ -83,14 +27,12 @@ const loginAdmin = async (req, res) => {
       return res.status(401).json({ message: 'Admin account is deactivated' });
     }
 
-    // Check password
     const isPasswordCorrect = await admin.comparePassword(password);
     
     if (!isPasswordCorrect) {
       return res.status(401).json({ message: 'Invalid admin credentials' });
     }
 
-    // Update last login
     admin.lastLoginAt = new Date();
     await admin.save();
 
@@ -213,54 +155,184 @@ const getPendingHospitals = async (req, res) => {
   }
 };
 
-// @desc    Verify hospital
+// @desc    Enhanced hospital verification with email notifications
 // @route   PUT /api/admin/hospitals/:id/verify
 // @access  Admin only
 const verifyHospital = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { status, rejectionReason, verificationNotes } = req.body;
-
-    if (!['approved', 'rejected'].includes(status)) {
-      return res.status(400).json({ 
-        message: 'Status must be either approved or rejected' 
-      });
-    }
-
-    const hospital = await Hospital.findById(id);
+    const { status, verificationNotes, rejectionReason, isPartnered } = req.body;
+    
+    const hospital = await Hospital.findById(req.params.id);
+    
     if (!hospital) {
       return res.status(404).json({ message: 'Hospital not found' });
     }
 
-    // Update verification status
     hospital.verificationStatus = status;
-    hospital.isPartnered = status === 'approved';
     hospital.verificationDetails = {
       verifiedBy: req.user._id,
       verifiedAt: new Date(),
-      rejectionReason: status === 'rejected' ? rejectionReason : undefined,
-      verificationNotes
+      verificationNotes: verificationNotes || '',
+      rejectionReason: rejectionReason || ''
     };
 
+    if (status === 'approved') {
+      hospital.isPartnered = isPartnered !== undefined ? isPartnered : true;
+    }
+
     await hospital.save();
+
+    // ✅ Send notification emails
+    try {
+      if (status === 'approved') {
+        await sendEmail(
+          hospital.contactInfo.email,
+          'hospitalApproval',
+          {
+            hospitalName: hospital.hospitalName,
+            verificationNotes: verificationNotes
+          }
+        );
+      } else if (status === 'rejected') {
+        await sendEmail(
+          hospital.contactInfo.email,
+          'hospitalRejection',
+          {
+            hospitalName: hospital.hospitalName,
+            rejectionReason: rejectionReason
+          }
+        );
+      }
+    } catch (emailError) {
+      console.error('Email notification failed:', emailError);
+    }
 
     res.json({
       success: true,
       message: `Hospital ${status} successfully`,
       hospital
     });
+
   } catch (error) {
-    console.error('Hospital verification error:', error);
+    console.error('Verify hospital error:', error);
     res.status(500).json({ 
-      message: 'Error verifying hospital',
+      message: 'Error updating hospital verification status',
       error: error.message 
     });
   }
 };
 
-// @desc    Get all users
-// @route   GET /api/admin/users
+// @desc    Create hospital manager account with email notification
+// @route   POST /api/admin/create-hospital-manager
 // @access  Admin only
+const createHospitalManager = async (req, res) => {
+  try {
+    const { name, email, phone, hospitalId, hospitalName } = req.body;
+
+    if (!name || !email || !hospitalId) {
+      return res.status(400).json({ 
+        message: 'Name, email, and hospital ID are required' 
+      });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ 
+        message: 'User with this email already exists' 
+      });
+    }
+
+    // Generate secure temporary password
+    const tempPassword = Math.random().toString(36).slice(-8) + 
+                        Math.random().toString(36).slice(-8) + 
+                        '!1A';
+
+    const manager = await User.create({
+      name,
+      email,
+      phone,
+      password: tempPassword,
+      role: 'hospital_manager',
+      isActive: true,
+      emailVerified: true
+    });
+
+    const hospital = await Hospital.findByIdAndUpdate(
+      hospitalId,
+      { manager: manager._id },
+      { new: true }
+    );
+
+    if (!hospital) {
+      await User.findByIdAndDelete(manager._id);
+      return res.status(404).json({ message: 'Hospital not found' });
+    }
+
+    // ✅ Send welcome email to manager
+    try {
+      await sendEmail(
+        manager.email,
+        'managerWelcome',
+        {
+          name: manager.name,
+          hospitalName: hospitalName || hospital.hospitalName,
+          email: manager.email,
+          tempPassword: tempPassword
+        }
+      );
+    } catch (emailError) {
+      console.error('Manager welcome email failed:', emailError);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Hospital manager account created successfully',
+      manager: {
+        _id: manager._id,
+        name: manager.name,
+        email: manager.email,
+        role: manager.role
+      },
+      tempPassword: tempPassword
+    });
+
+  } catch (error) {
+    console.error('Create hospital manager error:', error);
+    res.status(500).json({ 
+      message: 'Server error creating hospital manager',
+      error: error.message 
+    });
+  }
+};
+
+// @desc    Get detailed hospital information for review
+// @route   GET /api/admin/hospitals/:id/details
+// @access  Admin only
+const getHospitalDetailsForReview = async (req, res) => {
+  try {
+    const hospital = await Hospital.findById(req.params.id)
+      .populate('manager', 'name email phone')
+      .populate('verificationDetails.verifiedBy', 'name email');
+
+    if (!hospital) {
+      return res.status(404).json({ message: 'Hospital not found' });
+    }
+
+    res.json({
+      success: true,
+      hospital
+    });
+
+  } catch (error) {
+    console.error('Get hospital details error:', error);
+    res.status(500).json({ 
+      message: 'Error fetching hospital details',
+      error: error.message 
+    });
+  }
+};
+
+// Continue with all other existing functions...
 const getAllUsers = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -301,9 +373,6 @@ const getAllUsers = async (req, res) => {
   }
 };
 
-// @desc    Toggle user status
-// @route   PUT /api/admin/users/:id/toggle-status
-// @access  Admin only
 const toggleUserStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -313,7 +382,6 @@ const toggleUserStatus = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Prevent admins from deactivating themselves
     if (user._id.toString() === req.user._id.toString()) {
       return res.status(400).json({ 
         message: 'Cannot change your own account status' 
@@ -337,28 +405,22 @@ const toggleUserStatus = async (req, res) => {
   }
 };
 
-// @desc    Create new admin user (Super Admin only)
-// @route   POST /api/admin/create-admin
-// @access  Super Admin only
 const createAdminUser = async (req, res) => {
   try {
     const { name, email, password, phone, adminLevel, permissions, dateOfBirth, gender } = req.body;
 
-    // Validate super admin permissions
     if (req.user.adminLevel !== 'super_admin') {
       return res.status(403).json({ 
         message: 'Access denied. Only Super Admins can create admin users.' 
       });
     }
 
-    // Validate required fields
     if (!name || !email || !password || !phone) {
       return res.status(400).json({ 
         message: 'Name, email, password, and phone are required' 
       });
     }
 
-    // Check if user already exists
     const existingUser = await User.findOne({ 
       $or: [{ email }, { phone }] 
     });
@@ -371,7 +433,6 @@ const createAdminUser = async (req, res) => {
       });
     }
 
-    // Validate admin level
     const validAdminLevels = ['admin', 'moderator'];
     const selectedAdminLevel = adminLevel || 'admin';
     
@@ -381,17 +442,15 @@ const createAdminUser = async (req, res) => {
       });
     }
 
-    // Define permission sets
     const permissionSets = {
       'admin': ['verify_hospitals', 'manage_users', 'view_analytics'],
       'moderator': ['verify_hospitals', 'view_analytics']
     };
 
-    // Create new admin user
     const newAdmin = await User.create({
       name,
       email,
-      password, // Will be hashed by pre-save middleware
+      password,
       phone,
       role: 'admin',
       adminLevel: selectedAdminLevel,
@@ -401,9 +460,6 @@ const createAdminUser = async (req, res) => {
       gender,
       isActive: true
     });
-
-    // Generate temporary password (for first-time login)
-    const tempPassword = password;
 
     res.status(201).json({
       success: true,
@@ -417,11 +473,9 @@ const createAdminUser = async (req, res) => {
         adminLevel: newAdmin.adminLevel,
         permissions: newAdmin.permissions,
         createdBy: req.user.name,
-        tempPassword: tempPassword
+        tempPassword: password
       }
     });
-
-    console.log(`✅ New admin created by ${req.user.name}: ${newAdmin.email}`);
 
   } catch (error) {
     console.error('Create admin error:', error);
@@ -432,9 +486,6 @@ const createAdminUser = async (req, res) => {
   }
 };
 
-// @desc    Get all admin users created by current super admin
-// @route   GET /api/admin/my-admins
-// @access  Super Admin only
 const getMyAdmins = async (req, res) => {
   try {
     if (req.user.adminLevel !== 'super_admin') {
@@ -483,9 +534,6 @@ const getMyAdmins = async (req, res) => {
   }
 };
 
-// @desc    Update admin user status
-// @route   PUT /api/admin/admins/:id/status
-// @access  Super Admin only
 const updateAdminStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -532,9 +580,6 @@ const updateAdminStatus = async (req, res) => {
   }
 };
 
-// @desc    Delete admin user
-// @route   DELETE /api/admin/admins/:id
-// @access  Super Admin only
 const deleteAdminUser = async (req, res) => {
   try {
     const { id } = req.params;
@@ -573,9 +618,6 @@ const deleteAdminUser = async (req, res) => {
   }
 };
 
-// @desc    Generate random admin credentials
-// @route   POST /api/admin/generate-credentials
-// @access  Super Admin only
 const generateAdminCredentials = async (req, res) => {
   try {
     if (req.user.adminLevel !== 'super_admin') {
@@ -584,7 +626,6 @@ const generateAdminCredentials = async (req, res) => {
       });
     }
 
-    // Generate random credentials
     const generateRandomString = (length) => {
       const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
       let result = '';
@@ -614,11 +655,12 @@ const generateAdminCredentials = async (req, res) => {
 };
 
 module.exports = {
-  registerAdmin,
   loginAdmin,
   getDashboardStats,
   getPendingHospitals,
   verifyHospital,
+  createHospitalManager,
+  getHospitalDetailsForReview,
   getAllUsers,
   toggleUserStatus,
   createAdminUser,
