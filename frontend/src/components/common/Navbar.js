@@ -5,155 +5,185 @@ import { useAuth } from '../../context/AuthContext';
 const Navbar = () => {
   const { isAuthenticated, user, logout } = useAuth();
   const navigate = useNavigate();
-  const [hoveredLink, setHoveredLink] = useState(null);
-  const [isLogoHovered, setIsLogoHovered] = useState(false);
-  const [joinHospitalHover, setJoinHospitalHover] = useState(false);
-  const [adminHover, setAdminHover] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [hoveredItem, setHoveredItem] = useState(null);
 
   const handleLogout = async () => {
     await logout();
     navigate('/');
   };
 
-  // Smart dashboard routing based on user role
   const getDashboardRoute = () => {
     if (!user) return '/dashboard';
-    
-    switch (user.role) {
+    switch(user.role) {
       case 'admin':
-      case 'super_admin':
-        return '/admin';
-      case 'hospital_manager':
-        return '/hospital';
+      case 'super_admin': return '/admin';
+      case 'hospital_manager': return '/hospital';
       case 'patient':
-      default:
-        return '/dashboard';
+      default: return '/dashboard';
     }
   };
 
   const getDashboardText = () => {
     if (!user) return 'Dashboard';
-    
-    switch (user.role) {
+    switch(user.role) {
       case 'admin':
-      case 'super_admin':
-        return 'Admin Panel';
-      case 'hospital_manager':
-        return 'Hospital Dashboard';
+      case 'super_admin': return 'Admin Panel';
+      case 'hospital_manager': return 'Hospital Dashboard';
       case 'patient':
-      default:
-        return 'Dashboard';
+      default: return 'My Dashboard';
     }
   };
 
-  const getDashboardIcon = () => {
-    if (!user) return '📊';
-    
-    switch (user.role) {
-      case 'admin':
-      case 'super_admin':
-        return '🛡️';
-      case 'hospital_manager':
-        return '🏥';
-      case 'patient':
-      default:
-        return '📊';
-    }
+  const getUserInitials = () => {
+    return user?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U';
   };
 
   const styles = {
     navbar: {
-      backgroundColor: '#ffffff',
-      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
-      backdropFilter: 'blur(20px)',
-      borderBottom: '1px solid rgba(37, 99, 235, 0.1)',
+      background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+      borderBottom: '1px solid rgba(226, 232, 240, 0.8)',
+      boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
       position: 'sticky',
       top: 0,
       zIndex: 1000,
-      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      backdropFilter: 'blur(20px)',
     },
     container: {
-      maxWidth: '1200px',
+      maxWidth: '1280px',
       margin: '0 auto',
-      padding: '0 2rem',
+      padding: '0 1.5rem',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      height: '72px'
+      minHeight: '70px',
     },
     logo: {
       display: 'flex',
       alignItems: 'center',
       textDecoration: 'none',
       cursor: 'pointer',
-      userSelect: 'none',
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      transform: isLogoHovered ? 'scale(1.05)' : 'scale(1)',
-      filter: isLogoHovered ? 'brightness(1.1)' : 'brightness(1)'
+      transition: 'transform 0.2s ease',
     },
     logoIcon: {
-      fontSize: '2.5rem',
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      transform: isLogoHovered ? 'rotate(10deg)' : 'rotate(0deg)'
+      fontSize: '2.2rem',
+      marginRight: '0.7rem',
+      filter: 'drop-shadow(0 2px 4px rgba(37, 99, 235, 0.2))',
     },
     logoText: {
-      fontSize: '2rem',
+      fontSize: '1.8rem',
       fontWeight: '800',
-      background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #06b6d4 100%)',
+      background: 'linear-gradient(135deg, #1e40af 0%, #7c3aed 50%, #0ea5e9 100%)',
+      backgroundClip: 'text',
       WebkitBackgroundClip: 'text',
-      WebkitTextFillColor: 'transparent',
-      marginLeft: '0.75rem',
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      letterSpacing: '-0.025em'
+      color: 'transparent',
+      letterSpacing: '-0.02em',
+      userSelect: 'none',
     },
-    nav: {
+    logoTagline: {
+      fontSize: '0.75rem',
+      color: '#64748b',
+      fontWeight: '500',
+      textTransform: 'uppercase',
+      letterSpacing: '0.05em',
+      marginLeft: '0.5rem',
+      opacity: 0.8,
+    },
+    navLinks: {
       display: 'flex',
       alignItems: 'center',
-      gap: '2.5rem'
+      gap: '2rem',
     },
     navLink: {
-      color: '#64748b',
+      color: '#475569',
       textDecoration: 'none',
       fontWeight: '600',
-      fontSize: '1rem',
-      padding: '0.75rem 1.25rem',
-      borderRadius: '12px',
-      cursor: 'pointer',
-      position: 'relative',
-      userSelect: 'none',
+      fontSize: '0.95rem',
+      padding: '0.6rem 1.2rem',
+      borderRadius: '10px',
       transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      overflow: 'hidden'
+      position: 'relative',
+      overflow: 'hidden',
     },
-    navLinkHovered: {
-      color: '#2563eb',
-      backgroundColor: 'rgba(37, 99, 235, 0.08)',
-      transform: 'translateY(-2px)',
-      boxShadow: '0 8px 25px rgba(37, 99, 235, 0.15)'
+    navLinkHover: {
+      color: '#1e40af',
+      backgroundColor: 'rgba(30, 64, 175, 0.1)',
+      transform: 'translateY(-1px)',
+      boxShadow: '0 4px 12px rgba(30, 64, 175, 0.15)',
     },
-    userMenu: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '1.5rem',
-      userSelect: 'none'
-    },
-    userInfo: {
+    actionsContainer: {
       display: 'flex',
       alignItems: 'center',
       gap: '1rem',
-      cursor: 'pointer',
-      padding: '0.5rem 1.25rem',
-      borderRadius: '16px',
-      background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
-      border: '2px solid transparent',
-      backgroundClip: 'padding-box',
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      position: 'relative'
     },
-    userInfoHover: {
+    button: {
+      padding: '0.65rem 1.4rem',
+      borderRadius: '10px',
+      border: 'none',
+      fontWeight: '600',
+      fontSize: '0.9rem',
+      cursor: 'pointer',
+      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+      position: 'relative',
+      overflow: 'hidden',
+      textDecoration: 'none',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '0.5rem',
+      userSelect: 'none',
+    },
+    primaryButton: {
+      background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+      color: '#ffffff',
+      boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)',
+    },
+    primaryButtonHover: {
+      transform: 'translateY(-2px)',
+      boxShadow: '0 8px 25px rgba(37, 99, 235, 0.4)',
+    },
+    hospitalButton: {
+      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+      color: '#ffffff',
+      boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
+    },
+    hospitalButtonHover: {
+      transform: 'translateY(-2px)',
+      boxShadow: '0 8px 25px rgba(16, 185, 129, 0.4)',
+    },
+    secondaryButton: {
+      backgroundColor: 'transparent',
+      color: '#64748b',
+      border: '2px solid #e2e8f0',
+    },
+    secondaryButtonHover: {
+      backgroundColor: '#f8fafc',
+      borderColor: '#cbd5e1',
+      color: '#475569',
       transform: 'translateY(-1px)',
-      boxShadow: '0 12px 28px rgba(37, 99, 235, 0.15)',
-      borderColor: 'rgba(37, 99, 235, 0.2)'
+    },
+    logoutButton: {
+      background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+      color: '#ffffff',
+      boxShadow: '0 4px 14px rgba(239, 68, 68, 0.35)',
+    },
+    userProfile: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.8rem',
+      padding: '0.4rem 1rem 0.4rem 0.4rem',
+      backgroundColor: 'rgba(248, 250, 252, 0.8)',
+      borderRadius: '50px',
+      border: '2px solid transparent',
+      cursor: 'pointer',
+      transition: 'all 0.3s ease',
+      backdropFilter: 'blur(10px)',
+    },
+    userProfileHover: {
+      backgroundColor: 'rgba(37, 99, 235, 0.1)',
+      borderColor: 'rgba(37, 99, 235, 0.2)',
+      transform: 'translateY(-1px)',
+      boxShadow: '0 4px 15px rgba(37, 99, 235, 0.15)',
     },
     avatar: {
       width: '40px',
@@ -164,290 +194,173 @@ const Navbar = () => {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      fontSize: '1.125rem',
+      fontSize: '0.9rem',
       fontWeight: '700',
-      userSelect: 'none',
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)'
+      boxShadow: '0 3px 10px rgba(37, 99, 235, 0.3)',
+    },
+    userInfo: {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'flex-start',
     },
     userName: {
-      color: '#1e293b',
+      fontSize: '0.9rem',
       fontWeight: '700',
-      fontSize: '1.05rem',
-      lineHeight: '1.2'
+      color: '#1e293b',
+      lineHeight: '1.2',
     },
     userRole: {
+      fontSize: '0.75rem',
       color: '#64748b',
-      fontSize: '0.85rem',
+      fontWeight: '500',
       textTransform: 'capitalize',
-      fontWeight: '500'
     },
-    authButtons: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '1rem'
-    },
-    button: {
-      padding: '0.75rem 2rem',
+    badge: {
+      background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+      color: '#ffffff',
+      fontSize: '0.7rem',
+      fontWeight: '700',
+      padding: '0.2rem 0.6rem',
       borderRadius: '12px',
-      fontSize: '1rem',
-      fontWeight: '600',
-      textDecoration: 'none',
-      cursor: 'pointer',
-      userSelect: 'none',
-      border: 'none',
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      position: 'relative',
-      overflow: 'hidden',
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center'
+      textTransform: 'uppercase',
+      letterSpacing: '0.05em',
+      marginLeft: '0.5rem',
+      boxShadow: '0 2px 6px rgba(245, 158, 11, 0.3)',
     },
-    primaryButton: {
-      background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
-      color: '#ffffff',
-      boxShadow: '0 4px 15px rgba(37, 99, 235, 0.3)'
-    },
-    secondaryButton: {
-      backgroundColor: 'transparent',
-      color: '#64748b',
-      border: '2px solid #e2e8f0'
-    },
-    // ✅ Improved button styles
-    joinHospitalButton: {
-      backgroundColor: '#10b981',
-      color: '#ffffff',
-      padding: '0.75rem 1.25rem',
-      borderRadius: '10px',
-      fontSize: '0.9rem',
-      fontWeight: '600',
-      cursor: 'pointer',
-      border: 'none',
-      transition: 'all 0.3s ease-in-out',
-      boxShadow: '0 2px 8px rgba(16, 185, 129, 0.2)',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '0.5rem'
-    },
-    joinHospitalButtonHover: {
-      backgroundColor: '#059669',
-      transform: 'translateY(-1px)',
-      boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
-    },
-    adminButton: {
-      backgroundColor: '#ef4444',
-      color: '#ffffff',
-      padding: '0.75rem 1.25rem',
-      borderRadius: '10px',
-      fontSize: '0.9rem',
-      fontWeight: '600',
-      cursor: 'pointer',
-      border: 'none',
-      transition: 'all 0.3s ease-in-out',
-      boxShadow: '0 2px 8px rgba(239, 68, 68, 0.2)',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '0.5rem'
-    },
-    adminButtonHover: {
-      backgroundColor: '#dc2626',
-      transform: 'translateY(-1px)',
-      boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
-    },
-    logoutButton: {
-      background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-      color: '#ffffff',
-      boxShadow: '0 4px 15px rgba(239, 68, 68, 0.3)'
-    }
   };
 
-  const getNavLinkStyle = (linkKey) => {
-    const baseStyle = styles.navLink;
-    if (hoveredLink === linkKey) {
-      return { ...baseStyle, ...styles.navLinkHovered };
-    }
-    return baseStyle;
-  };
+  const navItems = [
+    { name: 'Home', path: '/', icon: '🏠' },
+    { name: 'Find Hospitals', path: '/hospitals', icon: '🏥' },
+    { name: 'Our Doctors', path: '/doctors', icon: '👨‍⚕️' },
+  ];
 
-  const getNavItems = () => {
-    const baseItems = [
-      { name: 'Find Hospitals', to: '/hospitals', icon: '🏥' },
-      { name: 'Our Doctors', to: '/doctors', icon: '👨‍⚕️' }
-    ];
-
-    if (isAuthenticated) {
-      baseItems.push({
-        name: getDashboardText(),
-        to: getDashboardRoute(),
-        icon: getDashboardIcon()
-      });
-
-      if (user?.role === 'patient') {
-        baseItems.push({ name: 'My Appointments', to: '/appointments', icon: '📅' });
-      }
-    }
-
-    return baseItems;
-  };
-
-  const navItems = getNavItems();
+  if (isAuthenticated) {
+    navItems.push({
+      name: getDashboardText(),
+      path: getDashboardRoute(),
+      icon: user?.role === 'admin' || user?.role === 'super_admin' ? '🛡️' : 
+            user?.role === 'hospital_manager' ? '🏥' : '📊'
+    });
+  }
 
   return (
     <nav style={styles.navbar}>
       <div style={styles.container}>
         {/* Logo */}
-        <Link 
-          to="/" 
-          style={styles.logo}
-          onMouseEnter={() => setIsLogoHovered(true)}
-          onMouseLeave={() => setIsLogoHovered(false)}
-        >
+        <Link to="/" style={styles.logo}>
           <span style={styles.logoIcon}>🏥</span>
-          <span style={styles.logoText}>Carespot</span>
+          <div>
+            <span style={styles.logoText}>CareSpot</span>
+            <div style={styles.logoTagline}>Healthcare Platform</div>
+          </div>
         </Link>
 
-        {/* Navigation Links */}
-        <div style={styles.nav}>
-          {navItems.map(({ name, to, icon }) => (
+        {/* Desktop Navigation */}
+        <div style={styles.navLinks}>
+          {navItems.map((item) => (
             <Link
-              key={to}
-              to={to}
-              style={getNavLinkStyle(to)}
-              onMouseEnter={() => setHoveredLink(to)}
-              onMouseLeave={() => setHoveredLink(null)}
-              onClick={(e) => {
-                e.target.style.transform = 'scale(0.95)';
-                setTimeout(() => {
-                  e.target.style.transform = hoveredLink === to ? 'translateY(-2px)' : 'translateY(0)';
-                }, 100);
+              key={item.path}
+              to={item.path}
+              style={{
+                ...styles.navLink,
+                ...(hoveredItem === item.path ? styles.navLinkHover : {}),
               }}
+              onMouseEnter={() => setHoveredItem(item.path)}
+              onMouseLeave={() => setHoveredItem(null)}
             >
-              <span style={{ marginRight: '0.5rem' }}>{icon}</span>
-              {name}
+              <span style={{ marginRight: '0.4rem' }}>{item.icon}</span>
+              {item.name}
+              {item.name.includes('Admin') && <span style={styles.badge}>Pro</span>}
             </Link>
           ))}
-          
-          {/* ✅ Updated Action buttons for non-authenticated users */}
-          {!isAuthenticated && (
-            <>
-              {/* Join as Hospital Button */}
-              <button
-                style={{
-                  ...styles.joinHospitalButton,
-                  ...(joinHospitalHover ? styles.joinHospitalButtonHover : {})
-                }}
-                onMouseEnter={() => setJoinHospitalHover(true)}
-                onMouseLeave={() => setJoinHospitalHover(false)}
-                onClick={() => navigate('/hospital/register')}
-              >
-                <span>🏥</span>
-                Join as Hospital
-              </button>
+        </div>
 
-              {/* Admin Button */}
-              <button
+        {/* Actions */}
+        <div style={styles.actionsContainer}>
+          {isAuthenticated ? (
+            <>
+              {/* User Profile */}
+              <div
                 style={{
-                  ...styles.adminButton,
-                  ...(adminHover ? styles.adminButtonHover : {})
+                  ...styles.userProfile,
+                  ...(hoveredItem === 'profile' ? styles.userProfileHover : {}),
                 }}
-                onMouseEnter={() => setAdminHover(true)}
-                onMouseLeave={() => setAdminHover(false)}
-                onClick={() => navigate('/admin/login')}
+                onMouseEnter={() => setHoveredItem('profile')}
+                onMouseLeave={() => setHoveredItem(null)}
+                onClick={() => navigate(getDashboardRoute())}
               >
-                <span>🛡️</span>
-                Admin
+                <div style={styles.avatar}>{getUserInitials()}</div>
+                <div style={styles.userInfo}>
+                  <div style={styles.userName}>{user?.name || 'User'}</div>
+                  <div style={styles.userRole}>
+                    {user?.role === 'hospital_manager' ? 'Hospital Manager' : 
+                     user?.role === 'super_admin' ? 'Super Admin' :
+                     user?.role?.replace('_', ' ') || 'User'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Logout Button */}
+              <button
+                onClick={handleLogout}
+                style={{
+                  ...styles.button,
+                  ...styles.logoutButton,
+                  ...(hoveredItem === 'logout' ? { transform: 'translateY(-2px)', boxShadow: '0 8px 25px rgba(239, 68, 68, 0.4)' } : {}),
+                }}
+                onMouseEnter={() => setHoveredItem('logout')}
+                onMouseLeave={() => setHoveredItem(null)}
+              >
+                <span>👋</span> Logout
               </button>
+            </>
+          ) : (
+            <>
+              {/* Login Button */}
+              <Link
+                to="/login"
+                style={{
+                  ...styles.button,
+                  ...styles.secondaryButton,
+                  ...(hoveredItem === 'login' ? styles.secondaryButtonHover : {}),
+                }}
+                onMouseEnter={() => setHoveredItem('login')}
+                onMouseLeave={() => setHoveredItem(null)}
+              >
+                <span>🔐</span> Patient Login
+              </Link>
+
+              {/* Hospital Login Button */}
+              <Link
+                to="/hospital/login"
+                style={{
+                  ...styles.button,
+                  ...styles.hospitalButton,
+                  ...(hoveredItem === 'hospital' ? styles.hospitalButtonHover : {}),
+                }}
+                onMouseEnter={() => setHoveredItem('hospital')}
+                onMouseLeave={() => setHoveredItem(null)}
+              >
+                <span>🏥</span> Hospital Login
+              </Link>
+
+              {/* Register Button */}
+              <Link
+                to="/register"
+                style={{
+                  ...styles.button,
+                  ...styles.primaryButton,
+                  ...(hoveredItem === 'register' ? styles.primaryButtonHover : {}),
+                }}
+                onMouseEnter={() => setHoveredItem('register')}
+                onMouseLeave={() => setHoveredItem(null)}
+              >
+                <span>🚀</span> Get Started
+              </Link>
             </>
           )}
         </div>
-
-        {/* User Menu or Auth Buttons */}
-        {isAuthenticated ? (
-          <div style={styles.userMenu}>
-            <div 
-              style={styles.userInfo}
-              title={`${user?.name} (${user?.role?.replace('_', ' ')})`}
-              onMouseEnter={(e) => {
-                Object.assign(e.currentTarget.style, styles.userInfoHover);
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = 'none';
-                e.currentTarget.style.borderColor = 'transparent';
-              }}
-              onClick={() => {
-                navigate(getDashboardRoute());
-              }}
-            >
-              <div style={styles.avatar}>
-                {user?.name?.charAt(0)?.toUpperCase() || 'U'}
-              </div>
-              <div>
-                <div style={styles.userName}>{user?.name}</div>
-                <div style={styles.userRole}>
-                  {user?.role === 'hospital_manager' ? 'Hospital Manager' : 
-                   user?.role === 'super_admin' ? 'Super Admin' :
-                   user?.role?.replace('_', ' ')}
-                </div>
-              </div>
-            </div>
-            
-            <button
-              onClick={handleLogout}
-              style={{ ...styles.button, ...styles.logoutButton }}
-              onMouseEnter={(e) => {
-                e.target.style.transform = 'translateY(-3px) scale(1.05)';
-                e.target.style.boxShadow = '0 8px 25px rgba(239, 68, 68, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.transform = 'translateY(0) scale(1)';
-                e.target.style.boxShadow = '0 4px 15px rgba(239, 68, 68, 0.3)';
-              }}
-            >
-              👋 Logout
-            </button>
-          </div>
-        ) : (
-          <div style={styles.authButtons}>
-            <Link
-              to="/login"
-              style={{ ...styles.button, ...styles.secondaryButton }}
-              onMouseEnter={(e) => {
-                e.target.style.backgroundColor = '#f8fafc';
-                e.target.style.borderColor = '#2563eb';
-                e.target.style.color = '#2563eb';
-                e.target.style.transform = 'translateY(-2px)';
-                e.target.style.boxShadow = '0 8px 25px rgba(37, 99, 235, 0.15)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.backgroundColor = 'transparent';
-                e.target.style.borderColor = '#e2e8f0';
-                e.target.style.color = '#64748b';
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = 'none';
-              }}
-            >
-              🔐 Sign In
-            </Link>
-            
-            <Link
-              to="/register"
-              style={{ ...styles.button, ...styles.primaryButton }}
-              onMouseEnter={(e) => {
-                e.target.style.transform = 'translateY(-3px) scale(1.05)';
-                e.target.style.boxShadow = '0 12px 30px rgba(37, 99, 235, 0.4)';
-                e.target.style.background = 'linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.transform = 'translateY(0) scale(1)';
-                e.target.style.boxShadow = '0 4px 15px rgba(37, 99, 235, 0.3)';
-                e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
-              }}
-            >
-              🚀 Get Started
-            </Link>
-          </div>
-        )}
       </div>
     </nav>
   );

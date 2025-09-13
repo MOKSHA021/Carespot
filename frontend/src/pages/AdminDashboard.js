@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { adminAPI, handleApiError } from '../services/api';
 import HospitalReviewModal from '../components/admin/HospitalReviewModal';
 
 const AdminDashboard = () => {
@@ -15,6 +16,9 @@ const AdminDashboard = () => {
   const [selectedHospital, setSelectedHospital] = useState(null);
   const [showHospitalModal, setShowHospitalModal] = useState(false);
 
+  // ✅ Enhanced: Approval loading states
+  const [approvingHospitals, setApprovingHospitals] = useState(new Set());
+
   const [adminFormData, setAdminFormData] = useState({
     name: '',
     email: '',
@@ -28,8 +32,6 @@ const AdminDashboard = () => {
   const [adminFormErrors, setAdminFormErrors] = useState({});
   const [adminFormLoading, setAdminFormLoading] = useState(false);
 
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
   useEffect(() => {
     fetchDashboardData();
     if (user?.adminLevel === 'super_admin') {
@@ -39,22 +41,21 @@ const AdminDashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
-      const token = localStorage.getItem('token');
+      setLoading(true);
       
-      const statsResponse = await fetch(`${API_BASE_URL}/admin/dashboard`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const statsData = await statsResponse.json();
+      const [statsResponse, hospitalsResponse] = await Promise.all([
+        adminAPI.getDashboard(),
+        adminAPI.getPendingHospitals()
+      ]);
       
-      const hospitalsResponse = await fetch(`${API_BASE_URL}/admin/hospitals/pending`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const hospitalsData = await hospitalsResponse.json();
-      
-      setDashboardStats(statsData.stats);
-      setPendingHospitals(hospitalsData.hospitals);
+      setDashboardStats(statsResponse.data.stats);
+      setPendingHospitals(hospitalsResponse.data.hospitals);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
+      
+      // ✅ Enhanced error message for timeout
+      const errorMessage = handleApiError(error);
+      alert(`Error loading dashboard: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -62,14 +63,9 @@ const AdminDashboard = () => {
 
   const fetchMyAdmins = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/admin/my-admins?page=1&limit=20`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setAdminUsers(data.admins);
+      const response = await adminAPI.getMyAdmins(1, 20);
+      if (response.data.success) {
+        setAdminUsers(response.data.admins);
       }
     } catch (error) {
       console.error('Error fetching admin users:', error);
@@ -90,49 +86,106 @@ const AdminDashboard = () => {
     fetchDashboardData(); // Refresh stats
   };
 
+  // ✅ ENHANCED: Automated approval with better timeout handling
   const handleQuickAction = async (hospitalId, action) => {
+    // Prevent double-clicking
+    if (approvingHospitals.has(hospitalId)) {
+      return;
+    }
+
+    setApprovingHospitals(prev => new Set(prev).add(hospitalId));
+
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/admin/hospitals/${hospitalId}/verify`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          status: action,
-          verificationNotes: `Quick ${action} by admin`,
-          isPartnered: action === 'approved'
-        })
+      const hospital = pendingHospitals.find(h => h._id === hospitalId);
+      
+      // ✅ Show user feedback for long operations
+      const actionText = action === 'approved' ? 'Approving' : 'Rejecting';
+      console.log(`${actionText} hospital "${hospital?.hospitalName}"... This may take up to 2 minutes.`);
+      
+      const response = await adminAPI.verifyHospital(hospitalId, {
+        status: action,
+        verificationNotes: `${action === 'approved' ? 'Hospital approved for partnership' : 'Hospital application rejected'}`,
+        rejectionReason: action === 'rejected' ? 'Application did not meet requirements' : '',
+        isPartnered: action === 'approved'
       });
 
-      if (response.ok) {
-        fetchDashboardData();
-        alert(`Hospital ${action} successfully!`);
+      if (response.data.success) {
+        if (action === 'approved') {
+          // ✅ Enhanced success message with automation details
+          const message = response.data.managerCreated 
+            ? `🎉 Hospital "${hospital?.hospitalName}" approved successfully!\n\n✅ Manager account created automatically\n📧 Welcome email with credentials sent to: ${response.data.managerEmail}\n\n🚀 Hospital can now access their dashboard immediately!`
+            : `✅ Hospital "${hospital?.hospitalName}" approved successfully!\n\n⚠️ Note: ${response.data.automationError || 'Manager account creation had issues'}`;
+          
+          alert(message);
+        } else {
+          alert(`❌ Hospital "${hospital?.hospitalName}" rejected successfully!`);
+        }
+
+        // Refresh dashboard data
+        await fetchDashboardData();
+      } else {
+        throw new Error(response.data.message || 'Action failed');
       }
     } catch (error) {
       console.error('Quick action error:', error);
+      
+      // ✅ Enhanced timeout error handling
+      if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+        alert(`⏱️ Operation Timed Out\n\nThe ${action} operation is taking longer than expected (over 2 minutes).\n\nThis might mean:\n• The operation is still processing in the background\n• Server is experiencing high load\n• Network connection is slow\n\nPlease:\n• Wait a moment and refresh the page to check status\n• If status hasn't changed, try the operation again\n• Contact support if the problem persists`);
+      } else if (error.response?.status === 500) {
+        alert(`❌ Server Error\n\nThere was an error processing the ${action} request.\n\nError: ${error.response.data?.message || 'Internal server error'}\n\nPlease try again or contact support.`);
+      } else if (error.response?.status === 404) {
+        alert(`❌ Hospital Not Found\n\nThe hospital you're trying to ${action} was not found.\n\nIt may have been deleted or moved.\n\nPlease refresh the page and try again.`);
+      } else {
+        const errorMessage = handleApiError(error);
+        alert(`❌ ${action.charAt(0).toUpperCase() + action.slice(1)} Failed\n\nError: ${errorMessage}\n\nPlease try again or contact support if the problem persists.`);
+      }
+    } finally {
+      setApprovingHospitals(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(hospitalId);
+        return newSet;
+      });
+    }
+  };
+
+  // ✅ Add retry functionality with exponential backoff
+  const retryOperation = async (hospitalId, action, maxRetries = 2) => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🔄 Retry attempt ${attempt} for ${action} on hospital ${hospitalId}`);
+        await handleQuickAction(hospitalId, action);
+        return; // Success, exit retry loop
+      } catch (error) {
+        console.error(`❌ Attempt ${attempt} failed:`, error);
+        
+        if (attempt === maxRetries) {
+          // Final attempt failed
+          alert(`❌ Operation Failed After ${maxRetries} Attempts\n\nThe ${action} operation failed multiple times.\n\nPlease:\n• Check your internet connection\n• Try again later\n• Contact support if the problem continues`);
+          return;
+        }
+        
+        // Wait before retrying (exponential backoff)
+        const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s...
+        console.log(`⏳ Waiting ${delay/1000} seconds before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
   };
 
   const generateCredentials = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/admin/generate-credentials`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await adminAPI.generateCredentials();
 
-      if (response.ok) {
-        const data = await response.json();
+      if (response.data.success) {
         setAdminFormData(prev => ({
           ...prev,
-          email: data.credentials.email,
-          password: data.credentials.password,
-          confirmPassword: data.credentials.password
+          email: response.data.credentials.email,
+          password: response.data.credentials.password,
+          confirmPassword: response.data.credentials.password
         }));
         
-        alert(`🎉 Credentials Generated!\n\n📧 Email: ${data.credentials.email}\n🔐 Password: ${data.credentials.password}\n\n💡 Credentials have been auto-filled in the form.`);
+        alert(`🎉 Credentials Generated!\n\n📧 Email: ${response.data.credentials.email}\n🔐 Password: ${response.data.credentials.password}\n\n💡 Credentials have been auto-filled in the form.`);
       }
     } catch (error) {
       console.error('Error generating credentials:', error);
@@ -201,20 +254,10 @@ const AdminDashboard = () => {
     setAdminFormLoading(true);
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/admin/create-admin`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(adminFormData)
-      });
+      const response = await adminAPI.createAdmin(adminFormData);
 
-      const data = await response.json();
-
-      if (response.ok) {
-        alert(`✅ Admin Created Successfully!\n\n👤 Name: ${data.admin.name}\n📧 Email: ${data.admin.email}\n🔑 Password: ${data.admin.tempPassword || adminFormData.password}\n📱 Phone: ${data.admin.phone}\n🛡️ Level: ${data.admin.adminLevel}\n\n⚠️ Please share these credentials securely with the new admin.\n💡 Advise them to change the password on first login.`);
+      if (response.data.success) {
+        alert(`✅ Admin Created Successfully!\n\n👤 Name: ${response.data.admin.name}\n📧 Email: ${response.data.admin.email}\n🔑 Password: ${response.data.admin.tempPassword || adminFormData.password}\n📱 Phone: ${response.data.admin.phone}\n🛡️ Level: ${response.data.admin.adminLevel}\n\n⚠️ Please share these credentials securely with the new admin.\n💡 Advise them to change the password on first login.`);
         
         setShowCreateAdminForm(false);
         setAdminFormData({
@@ -229,11 +272,14 @@ const AdminDashboard = () => {
         });
         fetchMyAdmins();
       } else {
-        setAdminFormErrors({ submit: data.message || 'Error creating admin user' });
+        setAdminFormErrors({ submit: response.data.message || 'Error creating admin user' });
       }
     } catch (error) {
       console.error('Error creating admin:', error);
-      setAdminFormErrors({ submit: 'Network error: Unable to create admin user. Please check if the backend server is running.' });
+      
+      // ✅ Enhanced timeout error handling
+      const errorMessage = handleApiError(error);
+      setAdminFormErrors({ submit: errorMessage });
     } finally {
       setAdminFormLoading(false);
     }
@@ -241,17 +287,9 @@ const AdminDashboard = () => {
 
   const toggleAdminStatus = async (adminId, currentStatus) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/admin/admins/${adminId}/status`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ isActive: !currentStatus })
-      });
+      const response = await adminAPI.updateAdminStatus(adminId, { isActive: !currentStatus });
 
-      if (response.ok) {
+      if (response.data.success) {
         fetchMyAdmins();
         alert(`✅ Admin ${!currentStatus ? 'activated' : 'deactivated'} successfully!`);
       } else {
@@ -259,7 +297,8 @@ const AdminDashboard = () => {
       }
     } catch (error) {
       console.error('Error updating admin status:', error);
-      alert('❌ Network error: Unable to update admin status');
+      const errorMessage = handleApiError(error);
+      alert(`❌ Error updating admin status: ${errorMessage}`);
     }
   };
 
@@ -268,13 +307,9 @@ const AdminDashboard = () => {
       const confirmation = window.prompt('Type "DELETE" to confirm:');
       if (confirmation === 'DELETE') {
         try {
-          const token = localStorage.getItem('token');
-          const response = await fetch(`${API_BASE_URL}/admin/admins/${adminId}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
+          const response = await adminAPI.deleteAdmin(adminId);
 
-          if (response.ok) {
+          if (response.data.success) {
             fetchMyAdmins();
             alert(`✅ Admin "${adminName}" deleted successfully!`);
           } else {
@@ -282,7 +317,8 @@ const AdminDashboard = () => {
           }
         } catch (error) {
           console.error('Error deleting admin:', error);
-          alert('❌ Network error: Unable to delete admin user');
+          const errorMessage = handleApiError(error);
+          alert(`❌ Error deleting admin: ${errorMessage}`);
         }
       } else {
         alert('❌ Deletion cancelled - confirmation text did not match');
@@ -290,6 +326,7 @@ const AdminDashboard = () => {
     }
   };
 
+  // Styles remain the same as your original
   const styles = {
     container: {
       minHeight: '100vh',
@@ -441,6 +478,17 @@ const AdminDashboard = () => {
     viewBtn: {
       backgroundColor: '#3b82f6',
       color: '#ffffff'
+    },
+    retryBtn: {
+      backgroundColor: '#f59e0b',
+      color: '#ffffff'
+    },
+    // ✅ Enhanced: Loading button styles
+    loadingBtn: {
+      backgroundColor: '#9ca3af',
+      color: '#ffffff',
+      cursor: 'not-allowed',
+      opacity: 0.7
     },
     createButton: {
       background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
@@ -648,6 +696,20 @@ const AdminDashboard = () => {
       textAlign: 'center',
       padding: '3rem',
       color: '#64748b'
+    },
+    // ✅ NEW: Timeout message styles
+    timeoutMessage: {
+      backgroundColor: '#fef3c7',
+      border: '2px solid #f59e0b',
+      borderRadius: '12px',
+      padding: '1rem',
+      margin: '1rem 0',
+      color: '#92400e',
+      fontSize: '0.875rem',
+      fontWeight: '600',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.5rem'
     }
   };
 
@@ -658,7 +720,7 @@ const AdminDashboard = () => {
           <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⏳</div>
           <div style={{ fontSize: '1.125rem', fontWeight: '600' }}>Loading admin dashboard...</div>
           <div style={{ fontSize: '0.875rem', marginTop: '0.5rem', opacity: 0.7 }}>
-            Connecting to {API_BASE_URL}
+            Connecting to API...
           </div>
         </div>
       </div>
@@ -786,10 +848,16 @@ const AdminDashboard = () => {
           </>
         )}
 
-        {/* Hospitals Tab with Enhanced Review */}
+        {/* ✅ Enhanced Hospitals Tab with Automated Approval and Timeout Handling */}
         {activeTab === 'hospitals' && (
           <div style={styles.hospitalsSection}>
             <h2 style={styles.sectionTitle}>🏥 Hospital Applications Review</h2>
+            
+            {/* ✅ Timeout Information */}
+            <div style={styles.timeoutMessage}>
+              ⏱️ <strong>Note:</strong> Hospital approval operations may take up to 2 minutes to complete due to automated manager account creation and email sending.
+            </div>
+            
             {pendingHospitals.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#64748b', padding: '3rem' }}>
                 <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎉</div>
@@ -797,39 +865,65 @@ const AdminDashboard = () => {
                 <p>All hospital applications have been reviewed!</p>
               </div>
             ) : (
-              pendingHospitals.map((hospital) => (
-                <div key={hospital._id} style={styles.hospitalCard}>
-                  <div style={styles.hospitalName}>🏥 {hospital.hospitalName}</div>
-                  <div style={styles.hospitalInfo}>
-                    📍 {hospital.location?.address}, {hospital.location?.city}<br />
-                    📞 {hospital.contactInfo?.phone} • ✉️ {hospital.contactInfo?.email}<br />
-                    📋 Registration: {hospital.registrationNumber}<br />
-                    🏥 Type: {hospital.hospitalType}<br />
-                    📅 Applied: {new Date(hospital.createdAt).toLocaleDateString()}
+              pendingHospitals.map((hospital) => {
+                const isApproving = approvingHospitals.has(hospital._id);
+                
+                return (
+                  <div key={hospital._id} style={styles.hospitalCard}>
+                    <div style={styles.hospitalName}>🏥 {hospital.hospitalName}</div>
+                    <div style={styles.hospitalInfo}>
+                      📍 {hospital.location?.address}, {hospital.location?.city}<br />
+                      📞 {hospital.contactInfo?.phone} • ✉️ {hospital.contactInfo?.email}<br />
+                      📋 Registration: {hospital.registrationNumber}<br />
+                      🏥 Type: {hospital.hospitalType}<br />
+                      📅 Applied: {new Date(hospital.createdAt).toLocaleDateString()}
+                    </div>
+                    
+                    <div style={styles.buttonGroup}>
+                      <button
+                        style={{ ...styles.quickActionBtn, ...styles.viewBtn }}
+                        onClick={() => handleHospitalClick(hospital)}
+                      >
+                        🔍 Review Details
+                      </button>
+                      <button
+                        style={{ 
+                          ...styles.quickActionBtn, 
+                          ...(isApproving ? styles.loadingBtn : styles.approveBtn)
+                        }}
+                        onClick={() => handleQuickAction(hospital._id, 'approved')}
+                        disabled={isApproving}
+                        title="This operation may take up to 2 minutes"
+                      >
+                        {isApproving ? '⏳ Approving...' : '✅ Approve & Send Credentials'}
+                      </button>
+                      <button
+                        style={{ 
+                          ...styles.quickActionBtn, 
+                          ...(isApproving ? styles.loadingBtn : styles.rejectBtn)
+                        }}
+                        onClick={() => handleQuickAction(hospital._id, 'rejected')}
+                        disabled={isApproving}
+                      >
+                        {isApproving ? '⏳ Processing...' : '❌ Quick Reject'}
+                      </button>
+                      
+                      {/* ✅ Retry button for failed operations */}
+                      <button
+                        style={{ 
+                          ...styles.quickActionBtn, 
+                          ...(isApproving ? styles.loadingBtn : styles.retryBtn)
+                        }}
+                        onClick={() => retryOperation(hospital._id, 'approved')}
+                        disabled={isApproving}
+                        title="Retry approval with automatic retries"
+                      >
+                        🔄 Retry Approve
+                      </button>
+                    </div>
                   </div>
-                  
-                  <div style={styles.buttonGroup}>
-                    <button
-                      style={{ ...styles.quickActionBtn, ...styles.viewBtn }}
-                      onClick={() => handleHospitalClick(hospital)}
-                    >
-                      🔍 Review Details
-                    </button>
-                    <button
-                      style={{ ...styles.quickActionBtn, ...styles.approveBtn }}
-                      onClick={() => handleQuickAction(hospital._id, 'approved')}
-                    >
-                      ✅ Quick Approve
-                    </button>
-                    <button
-                      style={{ ...styles.quickActionBtn, ...styles.rejectBtn }}
-                      onClick={() => handleQuickAction(hospital._id, 'rejected')}
-                    >
-                      ❌ Quick Reject
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
@@ -846,7 +940,7 @@ const AdminDashboard = () => {
           </div>
         )}
 
-        {/* Admin Management Tab */}
+        {/* Admin Management Tab - Keep existing code */}
         {activeTab === 'admin-management' && user?.adminLevel === 'super_admin' && (
           <div style={styles.hospitalsSection}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
@@ -957,7 +1051,7 @@ const AdminDashboard = () => {
         onUpdate={handleHospitalUpdate}
       />
 
-      {/* Create Admin Modal */}
+      {/* Create Admin Modal - Keep existing form code */}
       {showCreateAdminForm && (
         <div style={styles.modal}>
           <div style={styles.modalContent}>
@@ -1185,7 +1279,7 @@ const AdminDashboard = () => {
                 />
               </div>
 
-              <div style={styles.buttonGroup}>
+              <div style={{ display: 'flex', gap: '1rem' }}>
                 <button
                   type="button"
                   onClick={() => setShowCreateAdminForm(false)}

@@ -38,9 +38,12 @@ const upload = multer({
 
 // @desc    Register hospital partnership
 // @route   POST /api/hospitals/register
-// @access  Public (No authentication required)
+// @access  Public
 const registerHospital = async (req, res) => {
   try {
+    console.log('🏥 Hospital registration attempt');
+    console.log('📋 Request body:', JSON.stringify(req.body, null, 2));
+
     const {
       hospitalName,
       registrationNumber,
@@ -49,84 +52,139 @@ const registerHospital = async (req, res) => {
       contactInfo,
       facilities,
       departments,
-      bedCount,
+      services,
       operatingHours,
-      partnershipAgreement
+      licenseNumber,
+      accreditation,
+      establishedYear
     } = req.body;
 
-    // Validate required fields
-    if (!hospitalName || !registrationNumber || !hospitalType) {
+    // ✅ Validate required fields
+    if (!hospitalName || !hospitalName.trim()) {
       return res.status(400).json({ 
-        message: 'Hospital name, registration number, and type are required' 
+        success: false,
+        message: 'Hospital name is required',
+        field: 'hospitalName'
       });
     }
 
-    // Validate required location fields
-    if (!location?.address || !location?.city || !location?.state || !location?.pincode) {
+    if (!registrationNumber || !registrationNumber.trim()) {
       return res.status(400).json({ 
-        message: 'Complete address information is required' 
+        success: false,
+        message: 'Registration number is required',
+        field: 'registrationNumber'
       });
     }
 
-    // Validate required contact fields
+    if (!location?.address || !location?.city || !location?.state) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Complete address (address, city, state) is required',
+        field: 'location'
+      });
+    }
+
     if (!contactInfo?.phone || !contactInfo?.email) {
       return res.status(400).json({ 
-        message: 'Phone number and email are required' 
+        success: false,
+        message: 'Phone number and email are required',
+        field: 'contactInfo'
       });
     }
 
-    // Validate departments
-    if (!departments || departments.length === 0) {
-      return res.status(400).json({ 
-        message: 'At least one department must be selected' 
+    // ✅ Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(contactInfo.email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address',
+        field: 'email'
       });
     }
 
-    // Validate partnership agreement
-    if (!partnershipAgreement?.accepted) {
-      return res.status(400).json({ 
-        message: 'Partnership agreement must be accepted' 
+    // ✅ Validate phone format
+    const phoneRegex = /^\d{10}$/;
+    if (!phoneRegex.test(contactInfo.phone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid 10-digit phone number',
+        field: 'phone'
       });
     }
 
-    // Check if hospital already exists
+    // ✅ Check for existing hospitals
     const existingHospital = await Hospital.findOne({ 
       $or: [
-        { registrationNumber },
-        { 'contactInfo.email': contactInfo.email }
+        { registrationNumber: registrationNumber.trim() },
+        { 'contactInfo.email': contactInfo.email.toLowerCase() }
       ]
     });
 
     if (existingHospital) {
       return res.status(400).json({ 
-        message: 'Hospital with this registration number or email already exists' 
+        success: false,
+        message: existingHospital.registrationNumber === registrationNumber.trim()
+          ? `Hospital with registration number "${registrationNumber.trim()}" already exists`
+          : `Hospital with email "${contactInfo.email}" already exists`,
+        field: existingHospital.registrationNumber === registrationNumber.trim() ? 'registrationNumber' : 'email'
       });
     }
 
-    // ✅ Create hospital without requiring authentication
-    const hospital = await Hospital.create({
-      hospitalName,
-      registrationNumber,
-      hospitalType,
-      location,
-      contactInfo,
+    // ✅ Build managementInfo carefully
+    const managementInfo = {
+      accreditation: accreditation || [],
+      establishedYear: establishedYear || new Date().getFullYear()
+    };
+
+    // ✅ ONLY add licenseNumber if it has a meaningful value
+    if (licenseNumber && typeof licenseNumber === 'string' && licenseNumber.trim() !== '') {
+      managementInfo.licenseNumber = licenseNumber.trim();
+    }
+
+    // ✅ Prepare hospital data
+    const hospitalData = {
+      hospitalName: hospitalName.trim(),
+      registrationNumber: registrationNumber.trim(),
+      hospitalType: hospitalType || 'general',
+      location: {
+        address: location.address.trim(),
+        city: location.city.trim(),
+        state: location.state.trim(),
+        pinCode: location.pinCode || location.pincode || '000000',
+        coordinates: {
+          type: 'Point',
+          coordinates: [0, 0]
+        }
+      },
+      contactInfo: {
+        phone: contactInfo.phone.trim(),
+        email: contactInfo.email.toLowerCase().trim(),
+        website: contactInfo.website?.trim() || ''
+      },
+      managementInfo,
+      services: services || [],
       facilities: facilities || [],
-      departments: departments || [],
-      bedCount,
-      operatingHours,
-      // ✅ No manager required for public registration
+      departments: departments && departments.length > 0 ? departments : ['general'],
+      operatingHours: operatingHours || {
+        weekdays: { open: '08:00', close: '18:00' },
+        weekends: { open: '09:00', close: '16:00' },
+        emergency24x7: false
+      },
       verificationStatus: 'pending',
-      isPartnered: false,
-      partnershipAgreement: {
-        accepted: partnershipAgreement.accepted,
-        acceptedAt: partnershipAgreement.accepted ? new Date() : null,
-        termsVersion: '1.0'
-      }
-    });
+      isActive: true,
+      isPartnered: false
+    };
+
+    console.log('🏗️ Creating hospital with data:', JSON.stringify(hospitalData, null, 2));
+
+    // ✅ Create hospital
+    const hospital = await Hospital.create(hospitalData);
+
+    console.log('✅ Hospital created successfully:', hospital._id);
 
     res.status(201).json({
       success: true,
-      message: 'Hospital partnership application submitted successfully',
+      message: 'Hospital partnership application submitted successfully! You will receive an email notification once reviewed.',
       hospital: {
         _id: hospital._id,
         hospitalName: hospital.hospitalName,
@@ -137,25 +195,71 @@ const registerHospital = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Hospital registration error:', error);
+    console.error('🚨 Hospital registration error:', error);
     
-    // Handle validation errors
+    // ✅ Enhanced error handling
     if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(err => err.message);
+      const validationErrors = Object.values(error.errors).map(err => ({
+        field: err.path,
+        message: err.message,
+        value: err.value
+      }));
+      
       return res.status(400).json({ 
+        success: false,
         message: 'Validation failed',
         errors: validationErrors
       });
     }
 
-    // Handle duplicate key errors
+    // ✅ Handle duplicate key errors with specific messages
     if (error.code === 11000) {
+      const duplicateField = Object.keys(error.keyValue)[0];
+      const duplicateValue = error.keyValue[duplicateField];
+      
+      console.log('🔍 Duplicate key details:', { 
+        duplicateField, 
+        duplicateValue, 
+        errorKeyValue: error.keyValue 
+      });
+      
+      if (duplicateField === 'registrationNumber') {
+        return res.status(400).json({ 
+          success: false,
+          message: `Hospital with registration number "${duplicateValue}" already exists. Please use a different registration number.`,
+          field: 'registrationNumber',
+          duplicateValue: duplicateValue
+        });
+      }
+      
+      if (duplicateField === 'contactInfo.email') {
+        return res.status(400).json({ 
+          success: false,
+          message: `Hospital with email "${duplicateValue}" already exists. Please use a different email address.`,
+          field: 'email',
+          duplicateValue: duplicateValue
+        });
+      }
+      
+      if (duplicateField === 'managementInfo.licenseNumber') {
+        return res.status(400).json({ 
+          success: false,
+          message: `Hospital with license number "${duplicateValue}" already exists. Please use a different license number or leave it blank.`,
+          field: 'licenseNumber',
+          duplicateValue: duplicateValue
+        });
+      }
+      
       return res.status(400).json({ 
-        message: 'Hospital with this registration number already exists'
+        success: false,
+        message: `Duplicate value detected for ${duplicateField}: "${duplicateValue}"`,
+        field: duplicateField,
+        duplicateValue: duplicateValue
       });
     }
 
     res.status(500).json({ 
+      success: false,
       message: 'Server error during hospital registration',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
@@ -169,20 +273,13 @@ const getHospitalDetails = async (req, res) => {
   try {
     const hospital = await Hospital.findById(req.params.id)
       .populate('manager', 'name email phone')
-      .populate('staff.doctors', 'name email specialization')
-      .populate('staff.receptionists', 'name email phone')
       .populate('verificationDetails.verifiedBy', 'name email');
 
     if (!hospital) {
-      return res.status(404).json({ message: 'Hospital not found' });
-    }
-
-    // ✅ Updated permission check to handle hospitals without managers
-    const isManager = hospital.manager && req.user && hospital.manager._id.toString() === req.user._id.toString();
-    const isAdmin = req.user && (req.user.role === 'admin' || req.user.role === 'super_admin');
-    
-    if (!isManager && !isAdmin) {
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'Hospital not found' 
+      });
     }
 
     res.json({
@@ -193,6 +290,7 @@ const getHospitalDetails = async (req, res) => {
   } catch (error) {
     console.error('Get hospital details error:', error);
     res.status(500).json({ 
+      success: false,
       message: 'Error fetching hospital details',
       error: error.message 
     });
@@ -207,27 +305,21 @@ const updateHospital = async (req, res) => {
     const hospital = await Hospital.findById(req.params.id);
 
     if (!hospital) {
-      return res.status(404).json({ message: 'Hospital not found' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'Hospital not found' 
+      });
     }
 
-    // ✅ Updated permission check
+    // Check permissions
     const isManager = hospital.manager && req.user && hospital.manager.toString() === req.user._id.toString();
     const isAdmin = req.user && (req.user.role === 'admin' || req.user.role === 'super_admin');
 
     if (!isManager && !isAdmin) {
-      return res.status(403).json({ message: 'Access denied. Only hospital manager or admin can update details.' });
-    }
-
-    // Don't allow updating certain fields if hospital is already approved (unless admin)
-    if (hospital.verificationStatus === 'approved' && !isAdmin) {
-      const restrictedFields = ['registrationNumber', 'hospitalName', 'hospitalType'];
-      const hasRestrictedUpdates = restrictedFields.some(field => req.body[field]);
-      
-      if (hasRestrictedUpdates) {
-        return res.status(400).json({ 
-          message: 'Cannot update core details for approved hospitals. Contact admin for changes.' 
-        });
-      }
+      return res.status(403).json({ 
+        success: false,
+        message: 'Access denied. Only hospital manager or admin can update details.' 
+      });
     }
 
     // Update hospital details
@@ -243,6 +335,7 @@ const updateHospital = async (req, res) => {
   } catch (error) {
     console.error('Update hospital error:', error);
     res.status(500).json({ 
+      success: false,
       message: 'Error updating hospital information',
       error: error.message 
     });
@@ -259,22 +352,19 @@ const uploadHospitalDocuments = [
       const hospital = await Hospital.findById(req.params.id);
 
       if (!hospital) {
-        return res.status(404).json({ message: 'Hospital not found' });
-      }
-
-      // ✅ Updated permission check
-      const isManager = hospital.manager && req.user && hospital.manager.toString() === req.user._id.toString();
-      const isAdmin = req.user && (req.user.role === 'admin' || req.user.role === 'super_admin');
-
-      if (!isManager && !isAdmin) {
-        return res.status(403).json({ message: 'Access denied' });
+        return res.status(404).json({ 
+          success: false,
+          message: 'Hospital not found' 
+        });
       }
 
       if (!req.files || req.files.length === 0) {
-        return res.status(400).json({ message: 'No files uploaded' });
+        return res.status(400).json({ 
+          success: false,
+          message: 'No files uploaded' 
+        });
       }
 
-      // Process uploaded files
       const uploadedDocs = req.files.map(file => ({
         filename: file.filename,
         url: `/uploads/hospital_docs/${file.filename}`,
@@ -282,7 +372,9 @@ const uploadHospitalDocuments = [
         uploadedAt: new Date()
       }));
 
-      // Add documents to hospital
+      if (!hospital.documents) {
+        hospital.documents = [];
+      }
       hospital.documents.push(...uploadedDocs);
       await hospital.save();
 
@@ -295,6 +387,7 @@ const uploadHospitalDocuments = [
     } catch (error) {
       console.error('Upload documents error:', error);
       res.status(500).json({ 
+        success: false,
         message: 'Error uploading documents',
         error: error.message 
       });
@@ -372,9 +465,9 @@ const searchHospitals = async (req, res) => {
       ]);
     } else {
       hospitals = await Hospital.find(filter)
-        .select('hospitalName hospitalType location.address location.city contactInfo.phone departments facilities ratings operatingHours')
+        .select('hospitalName hospitalType location.address location.city contactInfo.phone departments facilities operatingHours')
         .populate('manager', 'name email')
-        .sort({ 'ratings.average': -1 })
+        .sort({ createdAt: -1 })
         .limit(20);
     }
 
@@ -387,6 +480,7 @@ const searchHospitals = async (req, res) => {
   } catch (error) {
     console.error('Search hospitals error:', error);
     res.status(500).json({ 
+      success: false,
       message: 'Error searching hospitals',
       error: error.message 
     });
@@ -399,32 +493,35 @@ const searchHospitals = async (req, res) => {
 const getHospitalDashboard = async (req, res) => {
   try {
     const hospital = await Hospital.findById(req.params.id)
-      .populate('staff.doctors', 'name email specialization')
-      .populate('staff.receptionists', 'name email');
+      .populate('manager', 'name email phone');
 
     if (!hospital) {
-      return res.status(404).json({ message: 'Hospital not found' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'Hospital not found' 
+      });
     }
 
-    // ✅ Updated permission check
-    const isManager = hospital.manager && req.user && hospital.manager.toString() === req.user._id.toString();
+    // Check permissions
+    const isManager = hospital.manager && req.user && hospital.manager._id.toString() === req.user._id.toString();
     const isAdmin = req.user && (req.user.role === 'admin' || req.user.role === 'super_admin');
 
     if (!isManager && !isAdmin) {
-      return res.status(403).json({ message: 'Access denied' });
+      return res.status(403).json({ 
+        success: false,
+        message: 'Access denied' 
+      });
     }
 
     // Get basic stats
     const stats = {
       verificationStatus: hospital.verificationStatus,
-      totalDoctors: hospital.staff?.doctors?.length || 0,
-      totalReceptionists: hospital.staff?.receptionists?.length || 0,
-      totalBeds: hospital.bedCount?.total || 0,
-      availableBeds: hospital.bedCount?.available || 0,
-      rating: hospital.ratings?.average || 0,
-      totalReviews: hospital.ratings?.count || 0,
+      isPartnered: hospital.isPartnered,
       departments: hospital.departments?.length || 0,
-      facilities: hospital.facilities?.length || 0
+      facilities: hospital.facilities?.length || 0,
+      services: hospital.services?.length || 0,
+      documentsCount: hospital.documents?.length || 0,
+      lastUpdated: hospital.updatedAt
     };
 
     res.json({
@@ -432,9 +529,14 @@ const getHospitalDashboard = async (req, res) => {
       hospital: {
         _id: hospital._id,
         hospitalName: hospital.hospitalName,
+        hospitalType: hospital.hospitalType,
         verificationStatus: hospital.verificationStatus,
         isPartnered: hospital.isPartnered,
-        createdAt: hospital.createdAt
+        location: hospital.location,
+        contactInfo: hospital.contactInfo,
+        operatingHours: hospital.operatingHours,
+        createdAt: hospital.createdAt,
+        updatedAt: hospital.updatedAt
       },
       stats
     });
@@ -442,6 +544,7 @@ const getHospitalDashboard = async (req, res) => {
   } catch (error) {
     console.error('Hospital dashboard error:', error);
     res.status(500).json({ 
+      success: false,
       message: 'Error fetching dashboard data',
       error: error.message 
     });
@@ -456,33 +559,147 @@ const assignHospitalManager = async (req, res) => {
     const { managerId } = req.body;
     
     if (!managerId) {
-      return res.status(400).json({ message: 'Manager ID is required' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'Manager ID is required' 
+      });
     }
 
     const hospital = await Hospital.findById(req.params.id);
     if (!hospital) {
-      return res.status(404).json({ message: 'Hospital not found' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'Hospital not found' 
+      });
     }
 
     const manager = await User.findById(managerId);
     if (!manager) {
-      return res.status(404).json({ message: 'Manager not found' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'Manager not found' 
+      });
+    }
+
+    if (manager.role !== 'hospital_manager') {
+      return res.status(400).json({ 
+        success: false,
+        message: 'User must have hospital_manager role' 
+      });
     }
 
     // Update hospital with manager
     hospital.manager = managerId;
     await hospital.save();
 
+    // Update manager with hospital reference
+    manager.hospitalId = hospital._id;
+    await manager.save();
+
     res.json({
       success: true,
       message: 'Hospital manager assigned successfully',
-      hospital
+      hospital: {
+        _id: hospital._id,
+        hospitalName: hospital.hospitalName,
+        manager: {
+          _id: manager._id,
+          name: manager.name,
+          email: manager.email,
+          phone: manager.phone
+        }
+      }
     });
 
   } catch (error) {
     console.error('Assign manager error:', error);
     res.status(500).json({ 
+      success: false,
       message: 'Error assigning hospital manager',
+      error: error.message 
+    });
+  }
+};
+
+// @desc    Get my hospital (for hospital managers)
+// @route   GET /api/hospitals/my-hospital
+// @access  Private (Hospital Manager only)
+const getMyHospital = async (req, res) => {
+  try {
+    if (req.user.role !== 'hospital_manager') {
+      return res.status(403).json({ 
+        success: false,
+        message: 'Access denied. Only hospital managers can access this route.' 
+      });
+    }
+
+    const hospital = await Hospital.findOne({ manager: req.user._id })
+      .populate('manager', 'name email phone')
+      .populate('verificationDetails.verifiedBy', 'name email');
+
+    if (!hospital) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'No hospital assigned to your account. Please contact admin.' 
+      });
+    }
+
+    res.json({
+      success: true,
+      hospital
+    });
+
+  } catch (error) {
+    console.error('Get my hospital error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error fetching hospital information',
+      error: error.message 
+    });
+  }
+};
+
+// @desc    Get all hospitals (Admin only)
+// @route   GET /api/hospitals
+// @access  Private (Admin only)
+const getAllHospitals = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const status = req.query.status;
+    const skip = (page - 1) * limit;
+
+    let filter = {};
+    if (status && status !== 'all') {
+      filter.verificationStatus = status;
+    }
+
+    const hospitals = await Hospital.find(filter)
+      .populate('manager', 'name email phone')
+      .populate('verificationDetails.verifiedBy', 'name email')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Hospital.countDocuments(filter);
+
+    res.json({
+      success: true,
+      hospitals,
+      pagination: {
+        total,
+        pages: Math.ceil(total / limit),
+        currentPage: page,
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1
+      }
+    });
+
+  } catch (error) {
+    console.error('Get all hospitals error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error fetching hospitals',
       error: error.message 
     });
   }
@@ -495,5 +712,7 @@ module.exports = {
   uploadHospitalDocuments,
   searchHospitals,
   getHospitalDashboard,
-  assignHospitalManager
+  assignHospitalManager,
+  getMyHospital,
+  getAllHospitals
 };

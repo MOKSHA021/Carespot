@@ -1,43 +1,73 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { hospitalAPI } from '../services/api';
+import StaffManagement from './StaffManagement'; // ✅ Import StaffManagement
 
 const HospitalDashboard = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [hospitalData, setHospitalData] = useState(null);
-  const [stats, setStats] = useState(null);
+  const [stats, setStats] = useState({
+    totalDoctors: 0,
+    totalReceptionists: 0,
+    totalNurses: 0,
+    totalStaff: 0,
+    totalBeds: 120,
+    availableBeds: 45,
+    rating: 4.6,
+    totalReviews: 234,
+    departments: 8,
+    facilities: 12
+  });
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
 
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
   useEffect(() => {
     fetchHospitalData();
+    fetchStaffStats();
   }, []);
 
   const fetchHospitalData = async () => {
     try {
-      const token = localStorage.getItem('token');
-      
-      // For demo purposes, we'll use the user's hospital ID
-      // In a real app, you'd store this when the hospital is created
-      const hospitalId = user?.hospitalId || 'demo-hospital-id';
-      
-      const response = await fetch(`${API_BASE_URL}/hospitals/${hospitalId}/dashboard`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setHospitalData(data.hospital);
-        setStats(data.stats);
+      setLoading(true);
+      const response = await hospitalAPI.getMyHospital();
+      if (response?.data?.hospital) {
+        setHospitalData(response.data.hospital);
       }
     } catch (error) {
       console.error('Error fetching hospital data:', error);
+      if (error.response?.status === 401) {
+        await logout();
+        navigate('/hospital/login');
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  // ✅ NEW: Fetch real staff statistics
+  const fetchStaffStats = async () => {
+    try {
+      const response = await hospitalAPI.getStaffStats();
+      if (response?.data?.success) {
+        const staffStats = response.data.stats;
+        setStats(prev => ({
+          ...prev,
+          totalStaff: staffStats.total,
+          totalDoctors: staffStats.summary?.doctors || 0,
+          totalReceptionists: staffStats.summary?.receptionists || 0,
+          totalNurses: staffStats.summary?.nurses || 0
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching staff stats:', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/');
   };
 
   const getStatusColor = (status) => {
@@ -88,15 +118,31 @@ const HospitalDashboard = () => {
       opacity: 0.8
     },
     userInfo: {
-      textAlign: 'right'
+      display: 'flex',
+      alignItems: 'center',
+      gap: '1rem'
     },
-    userName: {
-      fontSize: '1.125rem',
-      fontWeight: '600'
+    avatar: {
+      width: '50px',
+      height: '50px',
+      borderRadius: '50%',
+      backgroundColor: '#3b82f6',
+      color: '#ffffff',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: '1.2rem',
+      fontWeight: '700'
     },
-    userRole: {
-      fontSize: '0.875rem',
-      opacity: 0.8
+    logoutBtn: {
+      backgroundColor: '#ef4444',
+      color: '#ffffff',
+      border: 'none',
+      borderRadius: '8px',
+      padding: '0.75rem 1.5rem',
+      cursor: 'pointer',
+      fontWeight: '600',
+      fontSize: '0.9rem'
     },
     main: {
       maxWidth: '1200px',
@@ -188,6 +234,11 @@ const HospitalDashboard = () => {
       textAlign: 'center',
       padding: '3rem',
       color: '#64748b'
+    },
+    comingSoon: {
+      textAlign: 'center',
+      color: '#64748b',
+      padding: '3rem'
     }
   };
 
@@ -202,17 +253,26 @@ const HospitalDashboard = () => {
     );
   }
 
+  const hospitalName = hospitalData?.hospitalName || 'Hospital Dashboard';
+  const userInitials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'H';
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
         <div style={styles.headerContent}>
           <div>
-            <h1 style={styles.title}>🏥 Hospital Dashboard</h1>
+            <h1 style={styles.title}>🏥 {hospitalName}</h1>
             <p style={styles.subtitle}>Hospital Management & Partnership Portal</p>
           </div>
           <div style={styles.userInfo}>
-            <div style={styles.userName}>👋 {user?.name}</div>
-            <div style={styles.userRole}>Hospital Manager</div>
+            <div style={styles.avatar}>{userInitials}</div>
+            <div>
+              <div style={{ fontWeight: '600' }}>{user?.name}</div>
+              <div style={{ fontSize: '0.875rem', opacity: 0.8 }}>Hospital Manager</div>
+            </div>
+            <button onClick={handleLogout} style={styles.logoutBtn}>
+              👋 Logout
+            </button>
           </div>
         </div>
       </div>
@@ -239,6 +299,8 @@ const HospitalDashboard = () => {
             
             <div style={{ color: '#64748b', fontSize: '0.875rem' }}>
               Partnership Status: {hospitalData.isPartnered ? '✅ Active Partner' : '⏳ Pending Approval'}<br />
+              Type: {hospitalData.hospitalType}<br />
+              Location: {hospitalData.location?.city}, {hospitalData.location?.state}<br />
               Registered: {new Date(hospitalData.createdAt).toLocaleDateString()}
             </div>
 
@@ -272,46 +334,28 @@ const HospitalDashboard = () => {
 
         {/* Tabs */}
         <div style={styles.tabs}>
-          <button
-            style={{
-              ...styles.tab,
-              ...(activeTab === 'overview' ? styles.activeTab : {})
-            }}
-            onClick={() => setActiveTab('overview')}
-          >
-            📊 Overview
-          </button>
-          <button
-            style={{
-              ...styles.tab,
-              ...(activeTab === 'staff' ? styles.activeTab : {})
-            }}
-            onClick={() => setActiveTab('staff')}
-          >
-            👥 Staff Management
-          </button>
-          <button
-            style={{
-              ...styles.tab,
-              ...(activeTab === 'appointments' ? styles.activeTab : {})
-            }}
-            onClick={() => setActiveTab('appointments')}
-          >
-            📅 Appointments
-          </button>
-          <button
-            style={{
-              ...styles.tab,
-              ...(activeTab === 'settings' ? styles.activeTab : {})
-            }}
-            onClick={() => setActiveTab('settings')}
-          >
-            ⚙️ Settings
-          </button>
+          {[
+            { key: 'overview', label: '📊 Overview' },
+            { key: 'staff', label: '👥 Staff Management' },
+            { key: 'appointments', label: '📅 Appointments' },
+            { key: 'patients', label: '🏥 Patients' },
+            { key: 'settings', label: '⚙️ Settings' }
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              style={{
+                ...styles.tab,
+                ...(activeTab === tab.key ? styles.activeTab : {})
+              }}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        {/* Tab Content */}
-        {activeTab === 'overview' && stats && (
+        {/* ✅ TAB CONTENT - Now includes StaffManagement */}
+        {activeTab === 'overview' && (
           <>
             <div style={styles.statsGrid}>
               <div style={styles.statCard}>
@@ -322,25 +366,25 @@ const HospitalDashboard = () => {
               </div>
               <div style={styles.statCard}>
                 <div style={{ ...styles.statNumber, color: '#10b981' }}>
+                  {stats.totalNurses}
+                </div>
+                <div style={styles.statLabel}>Nurses</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={{ ...styles.statNumber, color: '#f59e0b' }}>
                   {stats.totalReceptionists}
                 </div>
                 <div style={styles.statLabel}>Receptionists</div>
               </div>
               <div style={styles.statCard}>
-                <div style={{ ...styles.statNumber, color: '#f59e0b' }}>
-                  {stats.totalBeds}
-                </div>
-                <div style={styles.statLabel}>Total Beds</div>
-              </div>
-              <div style={styles.statCard}>
                 <div style={{ ...styles.statNumber, color: '#8b5cf6' }}>
-                  {stats.availableBeds}
+                  {stats.totalStaff}
                 </div>
-                <div style={styles.statLabel}>Available Beds</div>
+                <div style={styles.statLabel}>Total Staff</div>
               </div>
               <div style={styles.statCard}>
                 <div style={{ ...styles.statNumber, color: '#ef4444' }}>
-                  {stats.rating.toFixed(1)}
+                  {stats.rating.toFixed(1)} ⭐
                 </div>
                 <div style={styles.statLabel}>Rating ({stats.totalReviews} reviews)</div>
               </div>
@@ -350,52 +394,49 @@ const HospitalDashboard = () => {
               <h3 style={styles.sectionTitle}>🏥 Hospital Information</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
                 <div>
-                  <h4 style={{ color: '#374151', marginBottom: '1rem' }}>Services</h4>
+                  <h4 style={{ color: '#374151', marginBottom: '1rem' }}>Services & Facilities</h4>
                   <p><strong>Departments:</strong> {stats.departments}</p>
                   <p><strong>Facilities:</strong> {stats.facilities}</p>
+                  <p><strong>Specialties:</strong> {hospitalData?.departments?.join(', ') || 'General Medicine'}</p>
                 </div>
                 <div>
-                  <h4 style={{ color: '#374151', marginBottom: '1rem' }}>Performance</h4>
-                  <p><strong>Patient Rating:</strong> {stats.rating.toFixed(1)}/5.0</p>
+                  <h4 style={{ color: '#374151', marginBottom: '1rem' }}>Performance Metrics</h4>
+                  <p><strong>Patient Rating:</strong> {stats.rating.toFixed(1)}/5.0 ⭐</p>
                   <p><strong>Total Reviews:</strong> {stats.totalReviews}</p>
+                  <p><strong>Total Staff Members:</strong> {stats.totalStaff}</p>
                 </div>
               </div>
             </div>
           </>
         )}
 
+        {/* ✅ STAFF MANAGEMENT TAB - Connected to StaffManagement component */}
         {activeTab === 'staff' && (
-          <div style={styles.section}>
-            <h3 style={styles.sectionTitle}>👥 Staff Management</h3>
-            <div style={{ textAlign: 'center', color: '#64748b', padding: '3rem' }}>
-              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>👥</div>
-              <h4>Staff Management System</h4>
-              <p>Add and manage doctors and receptionists for your hospital.</p>
-              <p style={{ fontSize: '0.875rem', opacity: 0.7 }}>Feature coming soon...</p>
-            </div>
-          </div>
+          <StaffManagement 
+            hospitalId={hospitalData?._id} 
+            onStaffUpdate={fetchStaffStats} // Callback to refresh stats
+          />
         )}
 
-        {activeTab === 'appointments' && (
+        {/* Other tabs remain as "coming soon" */}
+        {activeTab !== 'overview' && activeTab !== 'staff' && (
           <div style={styles.section}>
-            <h3 style={styles.sectionTitle}>📅 Appointment Management</h3>
-            <div style={{ textAlign: 'center', color: '#64748b', padding: '3rem' }}>
-              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📅</div>
-              <h4>Appointment Booking System</h4>
-              <p>Manage patient appointments and doctor schedules.</p>
-              <p style={{ fontSize: '0.875rem', opacity: 0.7 }}>Feature coming soon...</p>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'settings' && (
-          <div style={styles.section}>
-            <h3 style={styles.sectionTitle}>⚙️ Hospital Settings</h3>
-            <div style={{ textAlign: 'center', color: '#64748b', padding: '3rem' }}>
-              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⚙️</div>
-              <h4>Hospital Configuration</h4>
-              <p>Update hospital information, operating hours, and services.</p>
-              <p style={{ fontSize: '0.875rem', opacity: 0.7 }}>Feature coming soon...</p>
+            <h3 style={styles.sectionTitle}>
+              {activeTab === 'appointments' && '📅 Appointment Management'}
+              {activeTab === 'patients' && '🏥 Patient Management'}
+              {activeTab === 'settings' && '⚙️ Hospital Settings'}
+            </h3>
+            <div style={styles.comingSoon}>
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>
+                {activeTab === 'appointments' && '📅'}
+                {activeTab === 'patients' && '🏥'}
+                {activeTab === 'settings' && '⚙️'}
+              </div>
+              <h4>
+                {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Management System
+              </h4>
+              <p>This feature is coming soon. Stay tuned for updates!</p>
+              <p style={{ fontSize: '0.875rem', opacity: 0.7 }}>We're working hard to bring you the best hospital management experience.</p>
             </div>
           </div>
         )}

@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext'; // ✅ Added useAuth import
 
 // Components
 import Navbar from './components/common/Navbar';
@@ -16,8 +16,10 @@ import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import HospitalRegistrationForm from './components/hospital/HospitalRegistrationForm';
 import HospitalDashboard from './pages/HospitalDashboard';
+import HospitalLogin from './pages/HospitalLogin';
+import StaffManagement from './pages/StaffManagement';
 
-// Temporary placeholder components
+// Placeholder components
 const HospitalsPage = () => (
   <div style={{ 
     minHeight: '80vh', 
@@ -75,41 +77,7 @@ const AppointmentsPage = () => (
   </div>
 );
 
-const NotFoundPage = () => (
-  <div style={{ 
-    minHeight: '80vh', 
-    display: 'flex', 
-    alignItems: 'center', 
-    justifyContent: 'center',
-    fontFamily: "'Inter', sans-serif",
-    textAlign: 'center'
-  }}>
-    <div>
-      <h1 style={{ fontSize: '6rem', marginBottom: '1rem', color: '#ef4444' }}>404</h1>
-      <h2 style={{ fontSize: '2rem', marginBottom: '1rem', color: '#1e293b' }}>Page Not Found</h2>
-      <p style={{ color: '#64748b', marginBottom: '2rem' }}>
-        The page you're looking for doesn't exist or has been moved.
-      </p>
-      <a 
-        href="/"
-        style={{
-          backgroundColor: '#2563eb',
-          color: '#ffffff',
-          padding: '0.75rem 1.5rem',
-          borderRadius: '8px',
-          textDecoration: 'none',
-          fontSize: '0.875rem',
-          fontWeight: '600',
-          transition: 'all 0.2s ease'
-        }}
-      >
-        Go Back Home
-      </a>
-    </div>
-  </div>
-);
-
-// App Layout Component (for regular users)
+// App Layout Component (for regular users with navbar/footer)
 const AppLayout = ({ children }) => {
   const styles = {
     app: {
@@ -121,7 +89,7 @@ const AppLayout = ({ children }) => {
       flex: 1
     }
   };
-
+  
   return (
     <div style={styles.app}>
       <Navbar />
@@ -133,14 +101,15 @@ const AppLayout = ({ children }) => {
   );
 };
 
-// Admin Layout Component (no navbar/footer for admin pages)
-const AdminLayout = ({ children }) => {
+// Dashboard Layout Component (no navbar/footer for admin/hospital dashboards)
+const DashboardLayout = ({ children }) => {
   const styles = {
     app: {
-      minHeight: '100vh'
+      minHeight: '100vh',
+      backgroundColor: '#f8fafc'
     }
   };
-
+  
   return (
     <div style={styles.app}>
       {children}
@@ -148,27 +117,39 @@ const AdminLayout = ({ children }) => {
   );
 };
 
+// ✅ Smart redirect component that redirects based on user role
+const SmartRedirect = () => {
+  const { isAuthenticated, user } = useAuth(); // ✅ Now useAuth is imported
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  switch (user?.role) {
+    case 'hospital_manager':
+      return <Navigate to="/hospital" replace />;
+    case 'admin':
+    case 'super_admin':
+      return <Navigate to="/admin" replace />;
+    case 'patient':
+    default:
+      return <Navigate to="/dashboard" replace />;
+  }
+};
+
 function App() {
   return (
     <AuthProvider>
       <Router>
         <Routes>
-          {/* Public Routes */}
+          {/* ===================================================================== */}
+          {/* PUBLIC ROUTES */}
+          {/* ===================================================================== */}
+          
+          {/* Main Public Routes */}
           <Route path="/" element={
             <AppLayout>
               <HomePage />
-            </AppLayout>
-          } />
-          
-          <Route path="/login" element={
-            <AppLayout>
-              <Login />
-            </AppLayout>
-          } />
-          
-          <Route path="/register" element={
-            <AppLayout>
-              <Register />
             </AppLayout>
           } />
           
@@ -184,38 +165,94 @@ function App() {
             </AppLayout>
           } />
 
-          {/* ✅ FIXED: Hospital Registration - Now PUBLIC (No ProtectedRoute) */}
+          {/* ===================================================================== */}
+          {/* AUTHENTICATION ROUTES */}
+          {/* ===================================================================== */}
+
+          {/* Patient Authentication */}
+          <Route path="/login" element={
+            <AppLayout>
+              <Login />
+            </AppLayout>
+          } />
+          
+          <Route path="/register" element={
+            <AppLayout>
+              <Register />
+            </AppLayout>
+          } />
+
+          {/* Hospital Authentication */}
+          <Route path="/hospital/login" element={<HospitalLogin />} />
+          
           <Route path="/hospital/register" element={
             <AppLayout>
               <HospitalRegistrationForm />
             </AppLayout>
           } />
 
-          {/* Admin Routes */}
+          {/* Admin Authentication */}
           <Route path="/admin/login" element={
-            <AdminLayout>
+            <DashboardLayout>
               <AdminLogin />
-            </AdminLayout>
+            </DashboardLayout>
           } />
-          
-          <Route path="/admin/dashboard" element={
-            <ProtectedRoute roles={['admin']}>
-              <AdminLayout>
-                <AdminDashboard />
-              </AdminLayout>
+
+          {/* ===================================================================== */}
+          {/* PROTECTED ROUTES - HOSPITAL */}
+          {/* ===================================================================== */}
+
+          {/* ✅ HOSPITAL DASHBOARD - Main hospital route */}
+          <Route path="/hospital" element={
+            <ProtectedRoute roles={['hospital_manager']}>
+              <DashboardLayout>
+                <HospitalDashboard />
+              </DashboardLayout>
             </ProtectedRoute>
           } />
 
-          {/* Hospital Dashboard - Protected (for existing hospital managers) */}
+          {/* ✅ HOSPITAL DASHBOARD - Alternative path */}
           <Route path="/hospital/dashboard" element={
             <ProtectedRoute roles={['hospital_manager']}>
-              <AdminLayout>
+              <DashboardLayout>
                 <HospitalDashboard />
-              </AdminLayout>
+              </DashboardLayout>
             </ProtectedRoute>
           } />
 
-          {/* Protected User Routes */}
+          {/* Hospital Staff Management */}
+          <Route path="/hospital/staff" element={
+            <ProtectedRoute roles={['hospital_manager', 'admin', 'super_admin']}>
+              <DashboardLayout>
+                <StaffManagement />
+              </DashboardLayout>
+            </ProtectedRoute>
+          } />
+
+          {/* ===================================================================== */}
+          {/* PROTECTED ROUTES - ADMIN */}
+          {/* ===================================================================== */}
+
+          <Route path="/admin" element={
+            <ProtectedRoute roles={['admin', 'super_admin']}>
+              <DashboardLayout>
+                <AdminDashboard />
+              </DashboardLayout>
+            </ProtectedRoute>
+          } />
+
+          <Route path="/admin/dashboard" element={
+            <ProtectedRoute roles={['admin', 'super_admin']}>
+              <DashboardLayout>
+                <AdminDashboard />
+              </DashboardLayout>
+            </ProtectedRoute>
+          } />
+
+          {/* ===================================================================== */}
+          {/* PROTECTED ROUTES - PATIENT */}
+          {/* ===================================================================== */}
+
           <Route path="/dashboard" element={
             <ProtectedRoute roles={['patient']}>
               <AppLayout>
@@ -232,13 +269,33 @@ function App() {
             </ProtectedRoute>
           } />
 
-          {/* Redirect old paths */}
-          <Route path="/profile" element={<Navigate to="/dashboard" replace />} />
+          {/* ===================================================================== */}
+          {/* ROLE-BASED REDIRECTS */}
+          {/* ===================================================================== */}
+
+          {/* Smart Profile Redirect - redirects based on user role */}
+          <Route path="/profile" element={<SmartRedirect />} />
+
+          {/* ===================================================================== */}
+          {/* ERROR HANDLING */}
+          {/* ===================================================================== */}
           
           {/* 404 Page */}
           <Route path="*" element={
             <AppLayout>
-              <NotFoundPage />
+              <div style={{ textAlign: 'center', padding: '3rem' }}>
+                <h1>404 - Page Not Found</h1>
+                <p>The page you're looking for doesn't exist.</p>
+                <div style={{ marginTop: '2rem' }}>
+                  <a href="/" style={{ 
+                    color: '#2563eb', 
+                    textDecoration: 'none',
+                    fontWeight: '600'
+                  }}>
+                    ← Go back to home
+                  </a>
+                </div>
+              </div>
             </AppLayout>
           } />
         </Routes>

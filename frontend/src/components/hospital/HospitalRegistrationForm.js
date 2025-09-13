@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { hospitalAPI, handleApiError } from '../../services/api';
 
 const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
   const { user } = useAuth();
@@ -8,7 +9,7 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
   const [formData, setFormData] = useState({
     hospitalName: '',
     registrationNumber: '',
-    hospitalType: '',
+    hospitalType: 'general',
     location: {
       address: '',
       city: '',
@@ -24,26 +25,21 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
     },
     departments: [],
     facilities: [],
+    services: [],
     bedCount: {
       total: '',
       available: ''
     },
     operatingHours: {
-      monday: { open: '09:00', close: '18:00', isOpen: true },
-      tuesday: { open: '09:00', close: '18:00', isOpen: true },
-      wednesday: { open: '09:00', close: '18:00', isOpen: true },
-      thursday: { open: '09:00', close: '18:00', isOpen: true },
-      friday: { open: '09:00', close: '18:00', isOpen: true },
-      saturday: { open: '09:00', close: '14:00', isOpen: true },
-      sunday: { open: '10:00', close: '14:00', isOpen: false }
+      weekdays: { open: '09:00', close: '18:00' },
+      weekends: { open: '09:00', close: '16:00' },
+      emergency24x7: false
     },
     partnershipAgreement: {
       accepted: false
     }
   });
   const [formErrors, setFormErrors] = useState({});
-
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
   const steps = [
     { number: 1, title: 'Basic Info', icon: '🏥' },
@@ -54,19 +50,19 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
   ];
 
   const hospitalTypes = [
-    'General Hospital',
-    'Multi-specialty Hospital',
-    'Specialized Hospital',
-    'Clinic',
-    'Laboratory',
-    'Diagnostic Center'
+    { value: 'general', label: 'General Hospital' },
+    { value: 'multispecialty', label: 'Multi-specialty Hospital' },
+    { value: 'specialty', label: 'Specialized Hospital' },
+    { value: 'clinic', label: 'Clinic' },
+    { value: 'emergency', label: 'Emergency Care' },
+    { value: 'teaching', label: 'Teaching Hospital' }
   ];
 
   const availableDepartments = [
     'Cardiology', 'Neurology', 'Orthopedics', 'Pediatrics',
     'Gynecology', 'Dermatology', 'Ophthalmology', 'ENT',
     'Psychiatry', 'General Surgery', 'Internal Medicine',
-    'Radiology', 'Emergency Medicine'
+    'Radiology', 'Emergency Medicine', 'General Medicine'
   ];
 
   const availableFacilities = [
@@ -75,7 +71,6 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
     'Blood Bank', 'Dialysis', 'Maternity Ward', 'Pediatric Care'
   ];
 
-  // Event handlers remain the same as before
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
     
@@ -95,6 +90,7 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
       }));
     }
 
+    // Clear error when user starts typing
     if (formErrors[name]) {
       setFormErrors(prev => ({
         ...prev,
@@ -112,47 +108,51 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
     }));
   };
 
-  const handleOperatingHoursChange = (day, field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      operatingHours: {
-        ...prev.operatingHours,
-        [day]: {
-          ...prev.operatingHours[day],
-          [field]: value
-        }
-      }
-    }));
-  };
-
   const validateStep = (stepNumber) => {
     const errors = {};
 
     switch (stepNumber) {
       case 1:
-        if (!formData.hospitalName.trim()) errors.hospitalName = 'Hospital name is required';
-        if (!formData.registrationNumber.trim()) errors.registrationNumber = 'Registration number is required';
-        if (!formData.hospitalType) errors.hospitalType = 'Hospital type is required';
+        if (!formData.hospitalName.trim()) {
+          errors.hospitalName = 'Hospital name is required';
+        }
+        if (!formData.registrationNumber.trim()) {
+          errors.registrationNumber = 'Registration number is required';
+        }
+        if (!formData.hospitalType) {
+          errors.hospitalType = 'Hospital type is required';
+        }
         break;
       case 2:
-        if (!formData.location.address.trim()) errors['location.address'] = 'Address is required';
-        if (!formData.location.city.trim()) errors['location.city'] = 'City is required';
-        if (!formData.location.state.trim()) errors['location.state'] = 'State is required';
-        if (!formData.location.pincode.trim()) errors['location.pincode'] = 'Pincode is required';
-        else if (!/^[1-9][0-9]{5}$/.test(formData.location.pincode)) {
-          errors['location.pincode'] = 'Please enter a valid pincode';
+        if (!formData.location.address.trim()) {
+          errors['location.address'] = 'Address is required';
+        }
+        if (!formData.location.city.trim()) {
+          errors['location.city'] = 'City is required';
+        }
+        if (!formData.location.state.trim()) {
+          errors['location.state'] = 'State is required';
+        }
+        if (!formData.location.pincode.trim()) {
+          errors['location.pincode'] = 'Pincode is required';
+        } else if (!/^[1-9][0-9]{5}$/.test(formData.location.pincode)) {
+          errors['location.pincode'] = 'Please enter a valid 6-digit pincode';
         }
         break;
       case 3:
-        if (!formData.contactInfo.phone.trim()) errors['contactInfo.phone'] = 'Phone number is required';
-        else if (!/^[6-9]\d{9}$/.test(formData.contactInfo.phone)) {
-          errors['contactInfo.phone'] = 'Please enter a valid phone number';
+        if (!formData.contactInfo.phone.trim()) {
+          errors['contactInfo.phone'] = 'Phone number is required';
+        } else if (!/^[6-9]\d{9}$/.test(formData.contactInfo.phone)) {
+          errors['contactInfo.phone'] = 'Please enter a valid 10-digit phone number';
         }
-        if (!formData.contactInfo.email.trim()) errors['contactInfo.email'] = 'Email is required';
-        else if (!/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(formData.contactInfo.email)) {
-          errors['contactInfo.email'] = 'Please enter a valid email';
+        if (!formData.contactInfo.email.trim()) {
+          errors['contactInfo.email'] = 'Email is required';
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.contactInfo.email)) {
+          errors['contactInfo.email'] = 'Please enter a valid email address';
         }
-        if (formData.departments.length === 0) errors.departments = 'Please select at least one department';
+        if (formData.departments.length === 0) {
+          errors.departments = 'Please select at least one department';
+        }
         break;
       case 5:
         if (!formData.partnershipAgreement.accepted) {
@@ -175,38 +175,152 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
     setCurrentStep(prev => Math.max(prev - 1, 1));
   };
 
+  // ✅ Enhanced handleSubmit with better debugging
   const handleSubmit = async () => {
     if (!validateStep(currentStep)) return;
 
     setLoading(true);
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/hospitals/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` })
+      // ✅ DEBUG: Log the exact data being sent
+      console.log('🔍 DEBUGGING: Form data before sending:');
+      console.log('Raw formData:', JSON.stringify(formData, null, 2));
+      
+      console.log('🏥 Submitting hospital registration:', formData);
+      
+      const response = await hospitalAPI.register(formData);
+
+      console.log('✅ Registration successful:', response.data);
+
+      alert(`🎉 Hospital Registration Successful!\n\n🏥 Hospital: ${response.data.hospital.hospitalName}\n📋 Registration: ${response.data.hospital.registrationNumber}\n📊 Status: ${response.data.hospital.verificationStatus}\n\n✅ ${response.data.message}`);
+      
+      // Reset form
+      setFormData({
+        hospitalName: '',
+        registrationNumber: '',
+        hospitalType: 'general',
+        location: {
+          address: '',
+          city: '',
+          state: '',
+          pincode: '',
+          country: 'India'
         },
-        body: JSON.stringify(formData)
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        alert(`🎉 Hospital Registration Successful!\n\n🏥 Hospital: ${data.hospital.hospitalName}\n📋 Registration: ${data.hospital.registrationNumber}\n📊 Status: ${data.hospital.verificationStatus}\n\n✅ Your application has been submitted for admin review. You will be notified once approved.`);
-        
-        if (onSubmitSuccess) {
-          onSubmitSuccess(data.hospital);
+        contactInfo: {
+          phone: '',
+          email: '',
+          website: '',
+          emergencyNumber: ''
+        },
+        departments: [],
+        facilities: [],
+        services: [],
+        bedCount: {
+          total: '',
+          available: ''
+        },
+        operatingHours: {
+          weekdays: { open: '09:00', close: '18:00' },
+          weekends: { open: '09:00', close: '16:00' },
+          emergency24x7: false
+        },
+        partnershipAgreement: {
+          accepted: false
         }
-      } else {
-        setFormErrors({ submit: data.message });
+      });
+      
+      setCurrentStep(1);
+      
+      if (onSubmitSuccess) {
+        onSubmitSuccess(response.data.hospital);
       }
     } catch (error) {
-      console.error('Hospital registration error:', error);
-      setFormErrors({ submit: 'Network error. Please try again.' });
+      console.error('❌ Hospital registration error:', error);
+      
+      // ✅ ENHANCED DEBUG: Log complete error details
+      if (error.response) {
+        console.error('🚨 API Error Response:');
+        console.error('Status:', error.response.status);
+        console.error('Status Text:', error.response.statusText);
+        console.error('Headers:', error.response.headers);
+        console.error('Data:', error.response.data);
+        
+        // Show specific backend error message
+        const errorMessage = error.response.data?.message || 'Unknown server error';
+        const errorField = error.response.data?.field || 'unknown';
+        
+        setFormErrors({ 
+          submit: errorMessage 
+        });
+        
+        alert(`❌ Registration Failed\n\nError: ${errorMessage}\nField: ${errorField}\n\nPlease check the console for details.`);
+      } else if (error.request) {
+        console.error('🚨 Network Error - No Response:');
+        console.error('Request:', error.request);
+        const networkError = 'Network error - please check if the backend is running';
+        setFormErrors({ 
+          submit: networkError 
+        });
+        alert('❌ Network Error\n\nNo response from server. Please check if the backend is running.');
+      } else {
+        console.error('🚨 Request Setup Error:');
+        console.error('Message:', error.message);
+        const setupError = error.message;
+        setFormErrors({ 
+          submit: setupError 
+        });
+        alert(`❌ Request Error\n\n${error.message}`);
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ✅ Add test functions for debugging
+  const testAPIConnection = async () => {
+    try {
+      console.log('🧪 Testing API connection...');
+      const response = await fetch('http://localhost:5000/api/health');
+      const data = await response.json();
+      console.log('✅ API Connection successful:', data);
+      alert('✅ API Connection Working!');
+    } catch (error) {
+      console.error('❌ API Connection failed:', error);
+      alert('❌ Backend server is not running or not accessible');
+    }
+  };
+
+  const testMinimalRegistration = async () => {
+    const minimalData = {
+      hospitalName: "Test Hospital " + Date.now(),
+      registrationNumber: "TEST" + Date.now(),
+      hospitalType: "general",
+      location: {
+        address: "Test Address",
+        city: "Test City", 
+        state: "Test State",
+        pincode: "123456"
+      },
+      contactInfo: {
+        phone: "9876543210",
+        email: `test${Date.now()}@hospital.com`
+      },
+      departments: ["general"]
+    };
+
+    try {
+      console.log('🧪 Testing minimal registration data:');
+      console.log(JSON.stringify(minimalData, null, 2));
+      
+      const response = await hospitalAPI.register(minimalData);
+      console.log('✅ Minimal test successful:', response.data);
+      alert('✅ Minimal Registration Test Passed!');
+    } catch (error) {
+      console.error('❌ Minimal test failed:', error);
+      if (error.response) {
+        console.error('Error details:', error.response.data);
+        alert(`❌ Test Failed: ${error.response.data.message}`);
+      }
     }
   };
 
@@ -216,6 +330,24 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
         return (
           <div style={styles.stepContent}>
             <h3 style={styles.stepHeading}>Basic Hospital Information</h3>
+            
+            {/* ✅ Add test buttons for debugging */}
+            <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem' }}>
+              <button 
+                type="button" 
+                onClick={testAPIConnection}
+                style={{...styles.button, ...styles.buttonSecondary, fontSize: '0.7rem', padding: '0.3rem 0.7rem'}}
+              >
+                🧪 Test API Connection
+              </button>
+              <button 
+                type="button" 
+                onClick={testMinimalRegistration}
+                style={{...styles.button, ...styles.buttonSecondary, fontSize: '0.7rem', padding: '0.3rem 0.7rem'}}
+              >
+                🧪 Test Minimal Data
+              </button>
+            </div>
             
             <div style={styles.inputGroup}>
               <label style={styles.label}>Hospital Name *</label>
@@ -263,7 +395,7 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
                 >
                   <option value="">Select hospital type</option>
                   {hospitalTypes.map(type => (
-                    <option key={type} value={type}>{type}</option>
+                    <option key={type.value} value={type.value}>{type.label}</option>
                   ))}
                 </select>
                 {formErrors.hospitalType && <div style={styles.errorText}>{formErrors.hospitalType}</div>}
@@ -444,34 +576,6 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
                 ))}
               </div>
             </div>
-
-            <div style={styles.row}>
-              <div style={styles.inputGroup}>
-                <label style={styles.label}>Total Beds</label>
-                <input
-                  type="number"
-                  name="bedCount.total"
-                  value={formData.bedCount.total}
-                  onChange={handleInputChange}
-                  style={styles.input}
-                  placeholder="Total number of beds"
-                  min="1"
-                />
-              </div>
-
-              <div style={styles.inputGroup}>
-                <label style={styles.label}>Currently Available Beds</label>
-                <input
-                  type="number"
-                  name="bedCount.available"
-                  value={formData.bedCount.available}
-                  onChange={handleInputChange}
-                  style={styles.input}
-                  placeholder="Available beds"
-                  min="0"
-                />
-              </div>
-            </div>
           </div>
         );
 
@@ -479,44 +583,84 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
         return (
           <div style={styles.stepContent}>
             <h3 style={styles.stepHeading}>Operating Hours</h3>
-            <p style={styles.helperText}>Set your hospital's operating hours for each day of the week</p>
+            <p style={styles.helperText}>Set your hospital's operating hours</p>
             
             <div style={styles.scheduleContainer}>
-              {Object.keys(formData.operatingHours).map(day => (
-                <div key={day} style={styles.scheduleRow}>
-                  <div style={styles.dayLabel}>
-                    {day.charAt(0).toUpperCase() + day.slice(1)}
-                  </div>
-                  
-                  <label style={styles.checkboxLabel}>
-                    <input
-                      type="checkbox"
-                      checked={formData.operatingHours[day].isOpen}
-                      onChange={(e) => handleOperatingHoursChange(day, 'isOpen', e.target.checked)}
-                      style={styles.checkbox}
-                    />
-                    Open
-                  </label>
-
-                  {formData.operatingHours[day].isOpen && (
-                    <div style={styles.timeContainer}>
-                      <input
-                        type="time"
-                        value={formData.operatingHours[day].open}
-                        onChange={(e) => handleOperatingHoursChange(day, 'open', e.target.value)}
-                        style={styles.timeInput}
-                      />
-                      <span style={styles.timeTo}>to</span>
-                      <input
-                        type="time"
-                        value={formData.operatingHours[day].close}
-                        onChange={(e) => handleOperatingHoursChange(day, 'close', e.target.value)}
-                        style={styles.timeInput}
-                      />
-                    </div>
-                  )}
+              <div style={styles.scheduleRow}>
+                <div style={styles.dayLabel}>Weekdays (Mon-Fri)</div>
+                <div style={styles.timeContainer}>
+                  <input
+                    type="time"
+                    value={formData.operatingHours.weekdays.open}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      operatingHours: {
+                        ...prev.operatingHours,
+                        weekdays: { ...prev.operatingHours.weekdays, open: e.target.value }
+                      }
+                    }))}
+                    style={styles.timeInput}
+                  />
+                  <span style={styles.timeTo}>to</span>
+                  <input
+                    type="time"
+                    value={formData.operatingHours.weekdays.close}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      operatingHours: {
+                        ...prev.operatingHours,
+                        weekdays: { ...prev.operatingHours.weekdays, close: e.target.value }
+                      }
+                    }))}
+                    style={styles.timeInput}
+                  />
                 </div>
-              ))}
+              </div>
+
+              <div style={styles.scheduleRow}>
+                <div style={styles.dayLabel}>Weekends (Sat-Sun)</div>
+                <div style={styles.timeContainer}>
+                  <input
+                    type="time"
+                    value={formData.operatingHours.weekends.open}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      operatingHours: {
+                        ...prev.operatingHours,
+                        weekends: { ...prev.operatingHours.weekends, open: e.target.value }
+                      }
+                    }))}
+                    style={styles.timeInput}
+                  />
+                  <span style={styles.timeTo}>to</span>
+                  <input
+                    type="time"
+                    value={formData.operatingHours.weekends.close}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      operatingHours: {
+                        ...prev.operatingHours,
+                        weekends: { ...prev.operatingHours.weekends, close: e.target.value }
+                      }
+                    }))}
+                    style={styles.timeInput}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.scheduleRow}>
+                <div style={styles.dayLabel}>24/7 Emergency</div>
+                <label style={styles.checkboxLabel}>
+                  <input
+                    type="checkbox"
+                    name="operatingHours.emergency24x7"
+                    checked={formData.operatingHours.emergency24x7}
+                    onChange={handleInputChange}
+                    style={styles.checkbox}
+                  />
+                  Available 24/7
+                </label>
+              </div>
             </div>
           </div>
         );
@@ -554,17 +698,7 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
                 </div>
 
                 <div style={styles.agreementSection}>
-                  <h5>Partnership Fees:</h5>
-                  <ul>
-                    <li>Basic Partnership: ₹2,000 per month</li>
-                    <li>Premium Partnership: ₹5,000 per month</li>
-                    <li>Transaction Fee: 2% on appointments booked through platform</li>
-                    <li>Setup Fee: One-time ₹1,000 (waived for first 100 partners)</li>
-                  </ul>
-                </div>
-
-                <div style={styles.agreementSection}>
-                  <h5>Terms & Conditions:</h5>
+                  <h5>Partnership Terms:</h5>
                   <ul>
                     <li>Minimum 12-month partnership commitment</li>
                     <li>30-day notice period required for termination</li>
@@ -790,7 +924,7 @@ const HospitalRegistrationForm = ({ onSubmitSuccess }) => {
     },
     scheduleRow: {
       display: 'grid',
-      gridTemplateColumns: '100px 80px 1fr',
+      gridTemplateColumns: '150px 1fr',
       alignItems: 'center',
       gap: '1rem',
       padding: '0.8rem',
